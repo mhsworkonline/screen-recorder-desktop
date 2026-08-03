@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Recorder Settings</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F5F4F0;--surface:#FFFFFF;--surface-alt:#F8F7F4;--border:#E2E1DC;
+  --text-dark:#18181A;--text-mid:#4A4A50;--text-muted:#8A8A92;
+  --brand:#4573D9;--brand-light:#EEF2FB;--rec:#DC2626;--rec-bg:#FEF2F2;--ok:#16A34A;--ok-bg:#F0FDF4;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --shadow:0 1px 4px rgba(0,0,0,.06);
+}
+body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit-font-smoothing:antialiased;min-height:100vh;padding:1.75rem 1.25rem 2.5rem;user-select:none}
+.page{max-width:520px;margin:0 auto}
+.header{margin-bottom:1.5rem}
+.header-title{font-size:20px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.header-sub{font-size:13px;color:var(--text-muted);line-height:1.5}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:1.25rem;margin-bottom:1.1rem}
+.card-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin-bottom:.9rem}
+
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 2px}
+.row+.row{border-top:1px solid var(--border)}
+.row-label{font-size:14px;font-weight:600}
+.row-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+.kbd{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:600;color:var(--text-dark);background:var(--surface-alt);border:1px solid var(--border);border-radius:6px;padding:5px 9px;min-width:110px;text-align:center}
+.kbd.capturing{color:var(--brand);border-color:var(--brand);background:var(--brand-light)}
+.kbd.err{color:var(--rec);border-color:#FECACA;background:var(--rec-bg)}
+
+.btn{padding:7px 13px;border-radius:8px;font-size:12.5px;font-weight:600;font-family:var(--font);cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text-dark);transition:background .15s}
+.btn:hover{background:var(--surface-alt)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.link{border:none;background:none;padding:0;color:var(--text-muted);text-decoration:underline;font-size:12px}
+.btn.link:hover{color:var(--text-dark)}
+
+.foot-actions{display:flex;justify-content:flex-end;margin-top:.6rem}
+
+.err-msg{font-size:12px;color:#991B1B;background:var(--rec-bg);border:1px solid #FECACA;border-radius:8px;padding:8px 10px;margin-top:8px;display:none}
+.err-msg.show{display:block}
+
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.field label{font-size:14px;font-weight:600}
+.hint{font-size:12px;color:var(--text-muted);line-height:1.5}
+.seg{display:inline-flex;background:var(--surface-alt);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px;flex-shrink:0}
+.seg button{border:none;background:transparent;font-family:var(--font);font-size:12.5px;font-weight:600;color:var(--text-mid);padding:6px 12px;border-radius:6px;cursor:pointer;transition:background .15s,color .15s}
+.seg button.active{background:var(--surface);color:var(--text-dark);box-shadow:var(--shadow)}
+.pathbox{display:flex;gap:8px;align-items:center}
+.pathinput{flex:1;font-family:var(--font);font-size:12.5px;color:var(--text-mid);background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;padding:9px 11px;overflow-x:auto;white-space:nowrap}
+input[type=text]{width:100%;font-family:var(--font);font-size:13.5px;color:var(--text-dark);background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;padding:9px 11px}
+input[type=text]:focus{outline:2px solid var(--brand);outline-offset:-1px;background:var(--surface)}
+.preview{font-size:12px;color:var(--text-mid);margin-top:2px}
+.preview b{color:var(--text-dark);font-family:ui-monospace,Consolas,monospace}
+
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(12px);background:var(--text-dark);color:#fff;padding:9px 16px;border-radius:10px;font-size:12.5px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;box-shadow:0 4px 20px rgba(0,0,0,.15);max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <h1 class="header-title">Settings</h1>
+    <p class="header-sub">Changes save automatically.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Global shortcuts</div>
+    <div class="row">
+      <div class="row-label">Start / stop</div>
+      <div class="row-right">
+        <span class="kbd" id="kbd-startStop">—</span>
+        <button class="btn" type="button" data-action="startStop">Change</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="row-label">Pause / resume</div>
+      <div class="row-right">
+        <span class="kbd" id="kbd-pause">—</span>
+        <button class="btn" type="button" data-action="pause">Change</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="row-label">Cancel recording</div>
+      <div class="row-right">
+        <span class="kbd" id="kbd-cancel">—</span>
+        <button class="btn" type="button" data-action="cancel">Change</button>
+      </div>
+    </div>
+    <div class="err-msg" id="shortcutErr"></div>
+    <div class="foot-actions"><button class="btn link" id="resetShortcuts" type="button">Reset to defaults</button></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Recording start</div>
+    <div class="row" style="border-top:none">
+      <div class="row-label">Countdown</div>
+      <div class="row-right">
+        <div class="seg" id="countdownSeg">
+          <button type="button" data-sec="0">Immediate</button>
+          <button type="button" data-sec="3">3s</button>
+          <button type="button" data-sec="5">5s</button>
+          <button type="button" data-sec="10">10s</button>
+        </div>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:8px">Time between pressing Start/Stop and the recording actually beginning.</div>
+    <div class="foot-actions"><button class="btn link" id="resetCountdown" type="button">Reset to default (3s)</button></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Output folder</div>
+    <div class="field">
+      <div class="pathbox">
+        <div class="pathinput" id="folderPath">—</div>
+        <button class="btn" id="browseFolderBtn" type="button">Browse…</button>
+      </div>
+      <div class="hint">New recordings are saved here automatically — no dialog.</div>
+    </div>
+    <div class="foot-actions"><button class="btn link" id="resetFolder" type="button">Reset to Downloads</button></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">File name</div>
+    <div class="field">
+      <label for="patternInput">Pattern</label>
+      <input type="text" id="patternInput" placeholder="Recording-{date}-{time}" spellcheck="false" autocomplete="off">
+      <div class="hint">Tokens: <b>{date}</b>, <b>{time}</b>, <b>{count}</b>. The file extension is added automatically.</div>
+      <div class="preview">Example: <b id="patternPreview">—</b></div>
+    </div>
+    <div class="foot-actions"><button class="btn link" id="resetPattern" type="button">Reset to default</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const ACTIONS = ['startStop', 'pause', 'cancel'];
+const KEY_MAP = { ' ': 'Space', 'ArrowUp': 'Up', 'ArrowDown': 'Down', 'ArrowLeft': 'Left', 'ArrowRight': 'Right', 'Enter': 'Return' };
+
+let shortcuts = {};
+let defaults = { shortcuts: {}, outputFolder: '', filenamePattern: '', countdownSeconds: 3 };
+let capturingAction = null;
+let countdownSeconds = 3;
+
+let toastTid = null;
+function toast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTid);
+  toastTid = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+function displayAccelerator(accelerator){
+  return String(accelerator || '').replace(/CommandOrControl/g, 'Ctrl');
+}
+
+function renderShortcuts(){
+  ACTIONS.forEach(action => { $('kbd-' + action).textContent = displayAccelerator(shortcuts[action]); });
+}
+
+function showShortcutError(msg){
+  const el = $('shortcutErr');
+  el.textContent = msg;
+  el.classList.toggle('show', !!msg);
+}
+
+function acceleratorFromEvent(e){
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return { pending: true };
+  const parts = [];
+  if (e.ctrlKey) parts.push('CommandOrControl');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+  if (!parts.length) return { error: 'Include at least one modifier — Ctrl, Alt, or Shift.' };
+  const token = KEY_MAP[e.key] || (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+  parts.push(token);
+  return { accelerator: parts.join('+') };
+}
+
+function stopCapture(){
+  if (!capturingAction) return;
+  document.removeEventListener('keydown', onCaptureKeydown, true);
+  $('kbd-' + capturingAction).classList.remove('capturing');
+  capturingAction = null;
+  renderShortcuts();
+  window.recorderAPI.resumeShortcuts();
+}
+
+function onCaptureKeydown(e){
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey){
+    stopCapture();
+    showShortcutError('');
+    return;
+  }
+  const result = acceleratorFromEvent(e);
+  if (result.pending) return; // waiting on a non-modifier key
+  if (result.error){ showShortcutError(result.error); return; }
+
+  const action = capturingAction;
+  const candidate = { ...shortcuts, [action]: result.accelerator };
+  document.removeEventListener('keydown', onCaptureKeydown, true);
+  $('kbd-' + action).classList.remove('capturing');
+  $('kbd-' + action).textContent = displayAccelerator(result.accelerator);
+  capturingAction = null;
+  showShortcutError('');
+
+  window.recorderAPI.setShortcuts(candidate).then(res => {
+    if (res && res.ok){
+      shortcuts = candidate;
+      renderShortcuts();
+      toast('Shortcut saved');
+    } else {
+      renderShortcuts();
+      showShortcutError((res && res.error) || 'Could not save that shortcut.');
+    }
+  });
+}
+
+function startCapture(action){
+  stopCapture();
+  showShortcutError('');
+  window.recorderAPI.suspendShortcuts();
+  capturingAction = action;
+  $('kbd-' + action).textContent = 'Press keys… (Esc to cancel)';
+  $('kbd-' + action).classList.add('capturing');
+  document.addEventListener('keydown', onCaptureKeydown, true);
+}
+
+function renderCountdown(){
+  document.querySelectorAll('#countdownSeg button').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.sec, 10) === countdownSeconds);
+  });
+}
+
+function renderFolder(folder){
+  $('folderPath').textContent = folder || '—';
+  $('folderPath').title = folder || '';
+}
+
+function buildPreview(pattern){
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  const src = pattern || 'Recording-{date}-{time}';
+  const name = src.replace(/\{date\}/g, date).replace(/\{time\}/g, time).replace(/\{count\}/g, '001');
+  return (name.trim() || 'recording') + '.mp4';
+}
+
+function renderPatternPreview(){
+  $('patternPreview').textContent = buildPreview($('patternInput').value);
+}
+
+let patternSaveTid = null;
+function schedulePatternSave(){
+  clearTimeout(patternSaveTid);
+  patternSaveTid = setTimeout(() => {
+    window.recorderAPI.setSettings({ filenamePattern: $('patternInput').value.trim() || 'Recording-{date}-{time}' })
+      .then(() => toast('Saved'));
+  }, 500);
+}
+
+async function boot(){
+  const [settings, defs] = await Promise.all([
+    window.recorderAPI.getSettings(),
+    window.recorderAPI.getDefaults(),
+  ]);
+  defaults = defs;
+  shortcuts = settings.shortcuts || defs.shortcuts;
+  renderShortcuts();
+  countdownSeconds = typeof settings.countdownSeconds === 'number' ? settings.countdownSeconds : defs.countdownSeconds;
+  renderCountdown();
+  renderFolder(settings.outputFolder);
+  $('patternInput').value = settings.filenamePattern || defs.filenamePattern;
+  renderPatternPreview();
+
+  document.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => startCapture(btn.dataset.action));
+  });
+
+  document.querySelectorAll('#countdownSeg button').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      countdownSeconds = parseInt(btn.dataset.sec, 10);
+      renderCountdown();
+      await window.recorderAPI.setSettings({ countdownSeconds });
+      toast(countdownSeconds === 0 ? 'Recording will start immediately' : `${countdownSeconds}s countdown saved`);
+    });
+  });
+  $('resetCountdown').addEventListener('click', async () => {
+    countdownSeconds = defaults.countdownSeconds;
+    renderCountdown();
+    await window.recorderAPI.setSettings({ countdownSeconds });
+    toast('Countdown reset');
+  });
+
+  $('resetShortcuts').addEventListener('click', () => {
+    stopCapture();
+    window.recorderAPI.setShortcuts(defaults.shortcuts).then(res => {
+      if (res && res.ok){
+        shortcuts = { ...defaults.shortcuts };
+        renderShortcuts();
+        showShortcutError('');
+        toast('Shortcuts reset');
+      } else {
+        showShortcutError((res && res.error) || 'Could not reset shortcuts.');
+      }
+    });
+  });
+
+  $('browseFolderBtn').addEventListener('click', async () => {
+    const folder = await window.recorderAPI.chooseFolder();
+    if (!folder) return;
+    renderFolder(folder);
+    await window.recorderAPI.setSettings({ outputFolder: folder });
+    toast('Output folder saved');
+  });
+  $('resetFolder').addEventListener('click', async () => {
+    renderFolder(defaults.outputFolder);
+    await window.recorderAPI.setSettings({ outputFolder: defaults.outputFolder });
+    toast('Output folder reset');
+  });
+
+  $('patternInput').addEventListener('input', () => { renderPatternPreview(); schedulePatternSave(); });
+  $('resetPattern').addEventListener('click', async () => {
+    $('patternInput').value = defaults.filenamePattern;
+    renderPatternPreview();
+    await window.recorderAPI.setSettings({ filenamePattern: defaults.filenamePattern });
+    toast('File name pattern reset');
+  });
+
+  window.recorderAPI.onSettingsChanged(s => {
+    if (!capturingAction) { shortcuts = s.shortcuts || shortcuts; renderShortcuts(); }
+    if (typeof s.countdownSeconds === 'number'){ countdownSeconds = s.countdownSeconds; renderCountdown(); }
+    if (document.activeElement !== $('patternInput')) $('patternInput').value = s.filenamePattern || $('patternInput').value;
+    renderFolder(s.outputFolder);
+    renderPatternPreview();
+  });
+}
+
+boot();
+</script>
+</body>
+</html>

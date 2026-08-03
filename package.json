@@ -1,0 +1,25 @@
+{
+  "name": "screen-recorder-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win portable -c.productName=\"Screen Recorder (Test Build)\" -c.portable.artifactName=\"Screen Recorder (Test Build).exe\" && npm run clean:release",
+    "dist": "electron-builder --win nsis && npm run clean:release",
+    "release": "node start.js",
+    "clean:release": "node -e \"const fs=require('fs');fs.rmSync('release/win-unpacked',{recursive:true,force:true});fs.rmSync('release/builder-debug.yml',{force:true});fs.rmSync('release/builder-effective-config.yaml',{force:true})\""
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.utilityapp.screenrecorder",
+    "productName": "Screen Recorder",
+    "directories": { "output": "release" },
+    "files": ["main.js", "preload.js", "renderer/**/*"],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}

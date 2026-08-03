@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Screen Recorder</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F5F4F0;--surface:#FFFFFF;--surface-alt:#F8F7F4;--border:#E2E1DC;
+  --text-dark:#18181A;--text-mid:#4A4A50;--text-muted:#8A8A92;
+  --brand:#4573D9;--brand-light:#EEF2FB;--rec:#DC2626;--rec-bg:#FEF2F2;
+  --ok:#16A34A;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --shadow:0 1px 4px rgba(0,0,0,.06);--shadow-lg:0 4px 20px rgba(0,0,0,.08);
+}
+body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit-font-smoothing:antialiased;min-height:100vh;padding:2rem 1rem;user-select:none}
+.page{max-width:760px;margin:0 auto}
+.header{margin-bottom:1.75rem}
+.header-eyebrow{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px}
+.header-title{font-size:24px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.header-sub{font-size:14px;color:var(--text-muted);line-height:1.5}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:1.5rem;margin-bottom:1.25rem}
+
+.opts{display:flex;flex-direction:column;gap:2px;margin-bottom:1.25rem}
+.opt{display:flex;align-items:center;justify-content:space-between;padding:12px 4px}
+.opt+.opt{border-top:1px solid var(--border)}
+.opt-info{display:flex;align-items:center;gap:12px}
+.opt-ico{width:38px;height:38px;border-radius:10px;background:var(--surface-alt);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.opt-ico svg{width:20px;height:20px;fill:none;stroke:var(--text-mid);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.opt-txt-title{font-size:14px;font-weight:600}
+.opt-txt-sub{font-size:12px;color:var(--text-muted);margin-top:1px}
+.switch{position:relative;width:44px;height:24px;flex-shrink:0;cursor:pointer}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch .track{position:absolute;inset:0;background:#CFCEC9;border-radius:24px;transition:background .18s}
+.switch .thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .18s}
+.switch input:checked+.track{background:var(--brand)}
+.switch input:checked+.track+.thumb{left:23px}
+
+.fmt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 4px;border-top:1px solid var(--border);margin-bottom:1.25rem}
+.fmt-label .opt-txt-title{font-size:14px;font-weight:600}
+.fmt-label .opt-txt-sub{font-size:12px;color:var(--text-muted);margin-top:1px}
+.seg{display:inline-flex;background:var(--surface-alt);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px;flex-shrink:0}
+.seg button{border:none;background:transparent;font-family:var(--font);font-size:13px;font-weight:600;color:var(--text-mid);padding:7px 16px;border-radius:6px;cursor:pointer;transition:background .15s,color .15s}
+.seg button.active{background:var(--surface);color:var(--text-dark);box-shadow:var(--shadow)}
+.seg button:disabled{opacity:.4;cursor:not-allowed}
+
+.rec-btn{width:100%;padding:15px;background:var(--rec);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:600;font-family:var(--font);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:filter .18s,opacity .18s}
+.rec-btn:hover{filter:brightness(.94)}
+.rec-btn:disabled{opacity:.45;cursor:not-allowed}
+.rec-btn .dot{width:12px;height:12px;border-radius:50%;background:#fff}
+
+.live{display:none;flex-direction:column;gap:16px}
+.live.show{display:flex}
+.live-status{display:flex;align-items:center;justify-content:center;gap:10px;font-size:15px;font-weight:600}
+.live-status .pulse{width:12px;height:12px;border-radius:50%;background:var(--rec);animation:pulse 1.2s ease-in-out infinite}
+.live-status.paused .pulse{background:var(--text-muted);animation:none}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+.timer{font-size:42px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.live-controls{display:flex;gap:10px}
+.ctrl{flex:1;padding:13px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;background:var(--surface);color:var(--text-dark);transition:background .15s}
+.ctrl:hover{background:var(--surface-alt)}
+.ctrl.stop{background:var(--text-dark);color:#fff;border-color:var(--text-dark)}
+.ctrl.stop:hover{filter:brightness(1.15)}
+
+.count{position:fixed;inset:0;background:rgba(24,24,26,.82);display:none;align-items:center;justify-content:center;z-index:50}
+.count.show{display:flex}
+.count-num{font-size:140px;font-weight:800;color:#fff;line-height:1;animation:pop .9s ease-out}
+@keyframes pop{0%{transform:scale(.4);opacity:0}40%{transform:scale(1);opacity:1}100%{transform:scale(1.15);opacity:0}}
+
+.result{display:none}
+.result.show{display:block}
+.result video{width:100%;border-radius:12px;background:#000;display:block;margin-bottom:16px;max-height:420px}
+.result-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--text-muted);margin-bottom:16px}
+.result-meta b{color:var(--text-dark);font-weight:600}
+.result-actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{padding:12px 18px;border-radius:10px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text-dark);transition:background .15s}
+.btn:hover{background:var(--surface-alt)}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);flex:1;min-width:180px;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn.primary:hover{filter:brightness(.95);background:var(--brand)}
+.btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.notice{display:none;padding:14px 18px;border-radius:10px;font-size:13px;line-height:1.55;margin-bottom:1.25rem}
+.notice.show{display:block}
+.notice.err{background:var(--rec-bg);border:1px solid #FECACA;color:#991B1B}
+
+.hint{font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:14px;text-align:center}
+
+.shortcuts-wrap{position:relative;display:inline-block;margin-top:10px}
+.shortcuts-btn{font-family:var(--font);font-size:12px;font-weight:600;color:var(--text-muted);background:var(--surface-alt);border:1px solid var(--border);border-radius:20px;padding:6px 12px;cursor:pointer}
+.shortcuts-btn:hover{color:var(--text-dark)}
+.shortcuts-btn+.shortcuts-btn{margin-left:8px}
+.shortcuts-panel{display:none;position:absolute;top:calc(100% + 8px);left:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;box-shadow:var(--shadow-lg);font-size:12.5px;color:var(--text-mid);white-space:nowrap;z-index:40}
+.shortcuts-panel.show{display:block}
+.shortcuts-panel div{padding:3px 0}
+.shortcuts-panel b{color:var(--text-dark);background:var(--surface-alt);border:1px solid var(--border);border-radius:5px;padding:2px 6px;margin-right:8px;font-family:monospace}
+.shortcuts-panel .grp{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+
+.src-reset{padding:8px 14px;font-size:12px;flex-shrink:0}
+
+.float-rec{position:fixed;top:16px;right:16px;z-index:60;display:none;align-items:center;gap:8px;background:rgba(24,24,26,.92);color:#fff;padding:9px 16px;border-radius:30px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;box-shadow:var(--shadow-lg);cursor:pointer}
+.float-rec.show{display:flex}
+.float-dot{width:10px;height:10px;border-radius:50%;background:var(--rec);animation:pulse 1.2s ease-in-out infinite}
+
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(12px);background:var(--text-dark);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;box-shadow:var(--shadow-lg);max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.srcmodal{position:fixed;inset:0;background:rgba(24,24,26,.75);display:none;align-items:center;justify-content:center;z-index:70;padding:1rem}
+.srcmodal.show{display:flex}
+.srcmodal-card{background:var(--surface);border-radius:16px;padding:1.75rem;max-width:360px;width:100%;text-align:center;box-shadow:var(--shadow-lg)}
+.srcmodal-card.wide{max-width:520px;text-align:left}
+.srcmodal-card h3{font-size:17px;margin-bottom:8px}
+.srcmodal-card p{font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:18px}
+.picker-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;max-height:360px;overflow-y:auto;padding:2px}
+.picker-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:14px 0 8px;grid-column:1/-1}
+.picker-section-title:first-child{margin-top:0}
+.picker-tile{border:1px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;background:var(--surface-alt);transition:border-color .15s,background .15s}
+.picker-tile:hover{border-color:var(--brand);background:var(--brand-light)}
+.picker-tile img{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:6px;background:#000;display:block;margin-bottom:6px}
+.picker-tile .name{font-size:12px;font-weight:600;color:var(--text-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="header-eyebrow">Capture · Preview · Download</div>
+    <h1 class="header-title">Screen Recorder</h1>
+    <p class="header-sub">Record your screen or a window. Runs locally — nothing is uploaded.</p>
+    <div class="shortcuts-wrap">
+      <button class="shortcuts-btn" id="shortcutsBtn" type="button">⌨ Shortcuts</button>
+      <button class="shortcuts-btn" id="settingsBtn" type="button">⚙ Settings</button>
+      <div class="shortcuts-panel" id="shortcutsPanel">
+        <div><b>R</b>Start / stop</div>
+        <div><b>P</b>Pause / resume</div>
+        <div><b>Esc</b>Cancel recording</div>
+        <div class="grp">Work even when unfocused</div>
+        <div id="globalShortcutsList">
+          <div><b>Ctrl+Alt+R</b>Start / stop</div>
+          <div><b>Ctrl+Alt+P</b>Pause / resume</div>
+          <div><b>Ctrl+Alt+X</b>Cancel recording</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app">
+    <div class="notice err" id="error"></div>
+
+    <div class="card" id="setup">
+      <div class="opts">
+        <div class="opt">
+          <div class="opt-info">
+            <div class="opt-ico"><svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8"/></svg></div>
+            <div><div class="opt-txt-title">Microphone</div><div class="opt-txt-sub">Record your voice</div></div>
+          </div>
+          <label class="switch"><input type="checkbox" id="opt-mic"><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="opt">
+          <div class="opt-info">
+            <div class="opt-ico"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16 8a5 5 0 0 1 0 8M19 5a9 9 0 0 1 0 14"/></svg></div>
+            <div><div class="opt-txt-title">System audio</div><div class="opt-txt-sub">Sound from your PC</div></div>
+          </div>
+          <label class="switch"><input type="checkbox" id="opt-sys"><span class="track"></span><span class="thumb"></span></label>
+        </div>
+      </div>
+      <div class="fmt-row" id="srcRow" style="display:none">
+        <div class="fmt-label">
+          <div class="opt-txt-title">Source</div>
+          <div class="opt-txt-sub" id="srcSub">—</div>
+        </div>
+        <button type="button" class="btn src-reset" id="srcChangeBtn">Change</button>
+      </div>
+      <div class="fmt-row">
+        <div class="fmt-label">
+          <div class="opt-txt-title">Format</div>
+          <div class="opt-txt-sub" id="fmtSub">Choose the output file type</div>
+        </div>
+        <div class="seg" id="fmtSeg">
+          <button type="button" data-fmt="mp4">MP4</button>
+          <button type="button" data-fmt="webm">WebM</button>
+        </div>
+      </div>
+      <div class="fmt-row">
+        <div class="fmt-label">
+          <div class="opt-txt-title">Quality</div>
+          <div class="opt-txt-sub" id="qualSub">Lower quality = smaller file</div>
+        </div>
+        <div class="seg" id="qualSeg">
+          <button type="button" data-q="low">Low</button>
+          <button type="button" data-q="balanced">Balanced</button>
+          <button type="button" data-q="high">High</button>
+        </div>
+      </div>
+      <div class="fmt-row">
+        <div class="fmt-label">
+          <div class="opt-txt-title">Auto-stop</div>
+          <div class="opt-txt-sub">Stop automatically after this long</div>
+        </div>
+        <div class="seg" id="autoSeg">
+          <button type="button" data-min="0">Off</button>
+          <button type="button" data-min="5">5m</button>
+          <button type="button" data-min="15">15m</button>
+          <button type="button" data-min="30">30m</button>
+          <button type="button" data-min="60">60m</button>
+        </div>
+      </div>
+      <button class="rec-btn" id="startBtn"><span class="dot"></span> Start recording</button>
+      <p class="hint">First time, you'll pick a screen or window to record. We'll remember it and skip asking next time — press Start again once it's picked.</p>
+    </div>
+
+    <div class="card live" id="live">
+      <div class="live-status" id="liveStatus"><span class="pulse"></span> <span id="statusText">Recording</span></div>
+      <div class="timer" id="timer">00:00</div>
+      <div class="live-controls">
+        <button class="ctrl" id="pauseBtn">Pause</button>
+        <button class="ctrl stop" id="stopBtn">Stop</button>
+      </div>
+    </div>
+
+    <div class="card result" id="result">
+      <video id="preview" controls playsinline></video>
+      <div class="result-meta">
+        <span>Duration <b id="metaDur">—</b></span>
+        <span>Size <b id="metaSize">—</b></span>
+        <span>Format <b id="metaFmt">—</b></span>
+      </div>
+      <div class="result-actions">
+        <button class="btn primary" id="downloadBtn"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg> <span id="downloadLabel">Download</span></button>
+        <button class="btn" id="againBtn">Record again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="count" id="count"><div class="count-num" id="countNum">3</div></div>
+
+<div class="toast" id="toast"></div>
+
+<div class="float-rec" id="floatRec" title="Click to stop recording">
+  <span class="float-dot"></span>
+  <span id="floatTimer">00:00</span>
+</div>
+
+<div class="srcmodal" id="srcModal">
+  <div class="srcmodal-card wide">
+    <h3>Choose what to record</h3>
+    <p>We'll remember this and skip asking next time. Change it anytime from the recorder screen.</p>
+    <div class="picker-grid" id="pickerGrid"></div>
+    <button type="button" class="btn" id="pickerCancelBtn" style="margin-top:14px;width:100%">Cancel</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const supported = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.MediaRecorder);
+
+if (!supported) {
+  document.body.innerHTML = '<div class="page"><div class="card" style="text-align:center;padding:2.5rem 1.5rem"><h2>Screen recording unavailable</h2><p style="color:var(--text-muted);margin-top:8px">This build is missing required media APIs.</p></div></div>';
+}
+
+let mediaRecorder = null, chunks = [], displayStream = null, micStream = null, audioCtx = null;
+let startTime = 0, pausedMs = 0, pauseStart = 0, timerId = null, blobUrl = null;
+let mimeType = '', container = 'webm', selectedFmt = 'webm', selectedQual = 'balanced';
+let autoStopMin = 0, autoStopTimer = null;
+let starting = false;
+let pickingSource = false;
+let countdownSeconds = 3;
+
+const ORIGINAL_TITLE = document.title;
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function displayAccelerator(accelerator){
+  return String(accelerator || '').replace(/CommandOrControl/g, 'Ctrl');
+}
+
+function renderGlobalShortcuts(settings){
+  const s = (settings && settings.shortcuts) || {};
+  const rows = [
+    [s.startStop || 'Ctrl+Alt+R', 'Start / stop'],
+    [s.pause || 'Ctrl+Alt+P', 'Pause / resume'],
+    [s.cancel || 'Ctrl+Alt+X', 'Cancel recording'],
+  ];
+  $('globalShortcutsList').innerHTML = rows
+    .map(([accel, label]) => `<div><b>${escapeHtml(displayAccelerator(accel))}</b>${escapeHtml(label)}</div>`)
+    .join('');
+}
+
+function renderSourceRow(settings){
+  const row = $('srcRow');
+  if (!settings || !settings.sourceName){ row.style.display = 'none'; return; }
+  row.style.display = '';
+  $('srcSub').textContent = (settings.sourceType === 'screen' ? 'Screen — ' : 'Window — ') + settings.sourceName;
+}
+
+function renderPicker(sources){
+  const grid = $('pickerGrid');
+  grid.innerHTML = '';
+  const section = (label, list) => {
+    if (!list.length) return;
+    const h = document.createElement('div');
+    h.className = 'picker-section-title';
+    h.textContent = label;
+    grid.appendChild(h);
+    list.forEach(s => {
+      const tile = document.createElement('div');
+      tile.className = 'picker-tile';
+      tile.innerHTML = `<img src="${s.thumbnailDataUrl || ''}" alt=""><div class="name">${escapeHtml(s.name || 'Untitled')}</div>`;
+      tile.addEventListener('click', () => {
+        $('srcModal').classList.remove('show');
+        window.recorderAPI.pickerSelect(s.id);
+      });
+      grid.appendChild(tile);
+    });
+  };
+  section('Screens', sources.filter(s => s.type === 'screen'));
+  section('Windows', sources.filter(s => s.type === 'window'));
+  $('srcModal').classList.add('show');
+}
+
+function recordingDotDataUrl(){
+  if (recordingDotDataUrl._cached) return recordingDotDataUrl._cached;
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 32;
+  const ctx = c.getContext('2d');
+  ctx.beginPath();
+  ctx.arc(16, 16, 13, 0, Math.PI * 2);
+  ctx.fillStyle = '#DC2626';
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.stroke();
+  return (recordingDotDataUrl._cached = c.toDataURL('image/png'));
+}
+
+function beep(freq, dur){
+  try {
+    const ctx = beep._ctx || (beep._ctx = new (window.AudioContext || window.webkitAudioContext)());
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.value = freq;
+    gain.gain.value = 0.05;
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + dur / 1000);
+  } catch (e) {}
+}
+
+let toastTid = null;
+function toast(msg, ms){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTid);
+  toastTid = setTimeout(() => t.classList.remove('show'), ms || 2600);
+}
+
+function clearAutoStop(){ if (autoStopTimer){ clearTimeout(autoStopTimer); autoStopTimer = null; } }
+function isRecording(){ return !!mediaRecorder && mediaRecorder.state !== 'inactive'; }
+
+const QUALITY = {
+  low:      { v: 800e3,  a: 64e3,  fps: 15, mbPerMin: 6.5 },
+  balanced: { v: 1500e3, a: 128e3, fps: 24, mbPerMin: 12  },
+  high:     { v: 4000e3, a: 128e3, fps: 30, mbPerMin: 31  },
+};
+
+function showError(msg){ const e=$('error'); e.textContent=msg; e.classList.add('show'); }
+function clearError(){ $('error').classList.remove('show'); }
+
+function mimeCandidates(fmt){
+  return fmt === 'mp4'
+    ? ['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4;codecs=avc1','video/mp4']
+    : ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm;codecs=vp9','video/webm'];
+}
+function pickMime(fmt){
+  return mimeCandidates(fmt).find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+}
+const MP4_SUPPORTED = supported && !!pickMime('mp4');
+
+function initFormat(){
+  selectedFmt = MP4_SUPPORTED ? 'mp4' : 'webm';
+  const seg = $('fmtSeg');
+  seg.querySelectorAll('button').forEach(b => {
+    const f = b.dataset.fmt;
+    if (f === 'mp4' && !MP4_SUPPORTED){ b.disabled = true; b.title = 'MP4 recording is not supported in this build'; }
+    b.classList.toggle('active', f === selectedFmt);
+    b.addEventListener('click', () => {
+      if (b.disabled) return;
+      selectedFmt = f;
+      seg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+    });
+  });
+  $('fmtSub').textContent = MP4_SUPPORTED
+    ? 'MP4 records natively — no conversion, no upload.'
+    : 'This build can only record WebM. WebM plays everywhere and uploads fine.';
+}
+
+function initQuality(){
+  const seg = $('qualSeg');
+  const setSub = () => { $('qualSub').textContent = `Lower quality = smaller file · ~${QUALITY[selectedQual].mbPerMin} MB per minute`; };
+  seg.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', b.dataset.q === selectedQual);
+    b.addEventListener('click', () => {
+      selectedQual = b.dataset.q;
+      seg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+      setSub();
+    });
+  });
+  setSub();
+}
+
+function fmtTime(ms){
+  const s = Math.floor(ms/1000), h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  const mm = String(m).padStart(2,'0'), ss = String(sec).padStart(2,'0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+function fmtSize(b){
+  if (b >= 1e9) return (b/1e9).toFixed(2)+' GB';
+  if (b >= 1e6) return (b/1e6).toFixed(1)+' MB';
+  return Math.max(1,Math.round(b/1e3))+' KB';
+}
+
+function updateTimer(){
+  const elapsed = Date.now() - startTime - pausedMs;
+  const t = fmtTime(elapsed);
+  $('timer').textContent = t;
+  $('floatTimer').textContent = t;
+  document.title = '🔴 ' + t + ' · Screen Recorder';
+}
+
+function countdown(n){
+  return new Promise(resolve => {
+    const overlay = $('count'), num = $('countNum');
+    overlay.classList.add('show');
+    const tick = () => {
+      if (n <= 0){ overlay.classList.remove('show'); resolve(); return; }
+      num.textContent = n;
+      num.style.animation = 'none'; void num.offsetWidth; num.style.animation = '';
+      n--; setTimeout(tick, 900);
+    };
+    tick();
+  });
+}
+
+// Resolves (or lets the user pick) a source without recording — used both for the
+// very first pick and for "Change", so choosing a window never itself starts a
+// recording. The stream is discarded immediately; only the picker's side effect
+// (main.js remembering the source) matters here.
+async function changeSource(){
+  if (pickingSource || starting || isRecording()) return;
+  pickingSource = true;
+  try {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    s.getTracks().forEach(t => t.stop());
+    toast('Source selected — press Start to record');
+  } catch (err) {
+    // picker cancelled — nothing to do
+  } finally {
+    pickingSource = false;
+  }
+  renderSourceRow(await window.recorderAPI.getSettings());
+}
+
+async function start(){
+  if (starting || isRecording() || pickingSource) return;
+  starting = true;
+  clearError();
+
+  const preSettings = await window.recorderAPI.getSettings();
+  if (!preSettings.sourceId){
+    starting = false;
+    await changeSource();
+    return;
+  }
+
+  const wantMic = $('opt-mic').checked;
+  const wantSys = $('opt-sys').checked;
+  window.recorderAPI.setSettings({ mic: wantMic, sys: wantSys });
+
+  const q = QUALITY[selectedQual] || QUALITY.balanced;
+  try {
+    displayStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: q.fps } },
+      audio: wantSys
+    });
+  } catch (err) {
+    // Main resolves the source (remembered, or via our own picker) and rejects
+    // only when the picker was cancelled — there's no reliable cross-version
+    // error name to key off here, so any rejection just returns quietly.
+    starting = false;
+    return;
+  }
+  window.recorderAPI.getSettings().then(renderSourceRow);
+
+  micStream = null;
+  if (wantMic){
+    try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (err) {
+      showError('Microphone unavailable — recording screen without it. (' + (err && err.name || 'error') + ')');
+    }
+  }
+
+  const sysTracks = displayStream.getAudioTracks();
+  const micTracks = micStream ? micStream.getAudioTracks() : [];
+  let audioTrack = null;
+
+  if (sysTracks.length && micTracks.length){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch(e){} }
+    const dest = audioCtx.createMediaStreamDestination();
+    audioCtx.createMediaStreamSource(new MediaStream(sysTracks)).connect(dest);
+    audioCtx.createMediaStreamSource(new MediaStream(micTracks)).connect(dest);
+    audioTrack = dest.stream.getAudioTracks()[0];
+  } else {
+    audioTrack = sysTracks[0] || micTracks[0] || null;
+  }
+
+  const combined = new MediaStream([
+    ...displayStream.getVideoTracks(),
+    ...(audioTrack ? [audioTrack] : []),
+  ]);
+
+  displayStream.getVideoTracks()[0].addEventListener('ended', () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  });
+
+  if (countdownSeconds > 0) await countdown(countdownSeconds);
+
+  mimeType = pickMime(selectedFmt) || pickMime('webm') || '';
+  container = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+  chunks = [];
+  try {
+    mediaRecorder = new MediaRecorder(combined, {
+      mimeType,
+      videoBitsPerSecond: q.v,
+      audioBitsPerSecond: q.a,
+    });
+  } catch (err) {
+    showError('Recorder failed to start: ' + (err && err.message || err));
+    stopAllTracks(); starting = false; return;
+  }
+  mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  mediaRecorder.onstop = finish;
+  mediaRecorder.start(1000);
+  starting = false;
+
+  startTime = Date.now(); pausedMs = 0; pauseStart = 0;
+  timerId = setInterval(updateTimer, 250); updateTimer();
+
+  if (autoStopMin > 0){
+    clearAutoStop();
+    autoStopTimer = setTimeout(() => {
+      toast(`Auto-stopped — reached the ${autoStopMin} min limit`);
+      stop();
+    }, autoStopMin * 60000);
+  }
+
+  $('setup').style.display = 'none';
+  $('result').classList.remove('show');
+  $('live').classList.add('show');
+  $('floatRec').classList.add('show');
+  $('liveStatus').classList.remove('paused');
+  $('statusText').textContent = 'Recording';
+  $('pauseBtn').textContent = 'Pause';
+  window.recorderAPI.setTaskbarBadge(recordingDotDataUrl());
+  beep(880, 110);
+  toast('Recording started');
+}
+
+function togglePause(){
+  if (!mediaRecorder) return;
+  if (mediaRecorder.state === 'recording'){
+    mediaRecorder.pause(); pauseStart = Date.now();
+    $('liveStatus').classList.add('paused'); $('statusText').textContent = 'Paused'; $('pauseBtn').textContent = 'Resume';
+  } else if (mediaRecorder.state === 'paused'){
+    mediaRecorder.resume(); pausedMs += Date.now() - pauseStart;
+    $('liveStatus').classList.remove('paused'); $('statusText').textContent = 'Recording'; $('pauseBtn').textContent = 'Pause';
+  }
+}
+
+function stop(){ if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); }
+
+function cancelRecording(){
+  if (!mediaRecorder) return;
+  mediaRecorder.ondataavailable = null;
+  mediaRecorder.onstop = null;
+  try { if (mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) {}
+  clearInterval(timerId); timerId = null;
+  clearAutoStop();
+  stopAllTracks();
+  chunks = [];
+  document.title = ORIGINAL_TITLE;
+  $('floatRec').classList.remove('show');
+  window.recorderAPI.setTaskbarBadge(null);
+  $('live').classList.remove('show');
+  $('setup').style.display = '';
+  toast('Recording cancelled — nothing saved');
+}
+
+function stopAllTracks(){
+  if (displayStream) displayStream.getTracks().forEach(t => t.stop());
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (audioCtx){ try { audioCtx.close(); } catch(e){} audioCtx = null; }
+  displayStream = micStream = null;
+}
+
+function finish(){
+  clearInterval(timerId); timerId = null;
+  clearAutoStop();
+  const elapsed = Date.now() - startTime - pausedMs;
+  stopAllTracks();
+
+  const blob = new Blob(chunks, { type: (mimeType.split(';')[0]) || 'video/webm' });
+  if (blobUrl) URL.revokeObjectURL(blobUrl);
+  blobUrl = URL.createObjectURL(blob);
+
+  $('preview').src = blobUrl;
+  $('metaDur').textContent = fmtTime(elapsed);
+  $('metaSize').textContent = fmtSize(blob.size);
+  $('metaFmt').textContent = container.toUpperCase();
+  $('downloadLabel').textContent = 'Save another copy';
+
+  document.title = ORIGINAL_TITLE;
+  $('floatRec').classList.remove('show');
+  window.recorderAPI.setTaskbarBadge(null);
+  $('live').classList.remove('show');
+  $('result').classList.add('show');
+  beep(440, 160);
+  download();
+  toast('Recording saved');
+}
+
+function download(){
+  if (!blobUrl) return;
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  a.href = blobUrl; a.download = `recording-${ts}.${container}`; a.click();
+}
+
+function startOrToggle(){
+  if (isRecording()){ stop(); return; }
+  if ($('result').classList.contains('show')) reset();
+  start();
+}
+
+function reset(){
+  if (blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl = null; }
+  $('preview').removeAttribute('src'); $('preview').load();
+  $('result').classList.remove('show');
+  $('setup').style.display = '';
+  document.title = ORIGINAL_TITLE;
+  $('floatRec').classList.remove('show');
+  clearError();
+}
+
+function initAuto(initial){
+  autoStopMin = initial || 0;
+  const seg = $('autoSeg');
+  seg.querySelectorAll('button').forEach(b => {
+    const m = parseInt(b.dataset.min, 10);
+    b.classList.toggle('active', m === autoStopMin);
+    b.addEventListener('click', () => {
+      autoStopMin = m;
+      window.recorderAPI.setSettings({ autostop: m });
+      seg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+    });
+  });
+}
+
+function initShortcutsPanel(){
+  const btn = $('shortcutsBtn'), panel = $('shortcutsPanel');
+  btn.addEventListener('click', e => { e.stopPropagation(); panel.classList.toggle('show'); });
+  document.addEventListener('click', e => {
+    if (panel.classList.contains('show') && !panel.contains(e.target) && e.target !== btn) panel.classList.remove('show');
+  });
+}
+
+function initKeyboardShortcuts(){
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    const active = document.activeElement;
+    if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
+    const key = e.key.toLowerCase();
+    if (key === 'r'){
+      e.preventDefault();
+      startOrToggle();
+    } else if (key === 'p' && isRecording()){
+      e.preventDefault();
+      togglePause();
+    } else if (key === 'escape' && isRecording()){
+      e.preventDefault();
+      cancelRecording();
+    }
+  });
+}
+
+async function boot(){
+  const settings = await window.recorderAPI.getSettings();
+  $('opt-mic').checked = !!settings.mic;
+  $('opt-sys').checked = !!settings.sys;
+  renderSourceRow(settings);
+  renderGlobalShortcuts(settings);
+  countdownSeconds = typeof settings.countdownSeconds === 'number' ? settings.countdownSeconds : 3;
+
+  initFormat();
+  initQuality();
+  initAuto(settings.autostop || 0);
+  initShortcutsPanel();
+  initKeyboardShortcuts();
+
+  window.recorderAPI.onPickerShow(renderPicker);
+  window.recorderAPI.onSettingsChanged(s => {
+    renderGlobalShortcuts(s);
+    if (typeof s.countdownSeconds === 'number') countdownSeconds = s.countdownSeconds;
+  });
+  $('settingsBtn').addEventListener('click', () => window.recorderAPI.openSettings());
+  window.recorderAPI.onShortcut(action => {
+    if (action === 'start-stop'){
+      startOrToggle();
+    } else if (action === 'pause' && isRecording()){
+      togglePause();
+    } else if (action === 'cancel' && isRecording()){
+      cancelRecording();
+    }
+  });
+
+  $('startBtn').addEventListener('click', start);
+  $('pauseBtn').addEventListener('click', togglePause);
+  $('stopBtn').addEventListener('click', stop);
+  $('downloadBtn').addEventListener('click', download);
+  $('againBtn').addEventListener('click', reset);
+  $('floatRec').addEventListener('click', stop);
+  $('pickerCancelBtn').addEventListener('click', () => {
+    $('srcModal').classList.remove('show');
+    window.recorderAPI.pickerSelect(null);
+  });
+  $('srcChangeBtn').addEventListener('click', async () => {
+    await window.recorderAPI.resetSource();
+    changeSource();
+  });
+}
+
+if (supported) boot();
+</script>
+</body>
+</html>
