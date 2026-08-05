@@ -9,8 +9,8 @@ The web version exists because browsers force a picker dialog on every `getDispl
 ```
 npm start          # launch in dev mode (electron .)
 npm run pack        # unpacked build → release/win-unpacked/
-npm run dist         # NSIS installer → release/*.exe
-npm run release      # node start.js — builds the installer AND launches it
+npm run dist         # portable .exe → release/*.exe (runs the app directly, no installer wizard)
+npm run release      # node start.js — builds the portable .exe AND launches it
 ```
 
 ## Architecture
@@ -23,7 +23,7 @@ npm run release      # node start.js — builds the installer AND launches it
   - `setPermissionRequestHandler` allow-listing only `'media'` — defense-in-depth; Electron's real default is to *allow* most permission requests, this isn't what blocks anything by default.
 - `preload.js` — `contextBridge.exposeInMainWorld('recorderAPI', {...})` only. `BrowserWindow` is created with `contextIsolation: true, nodeIntegration: false, sandbox: true`; with `sandbox: true` the preload script itself cannot `require('fs')` or similar, so it must stay a thin IPC wrapper — any new capability the renderer needs goes through a new `ipcMain.handle`/`ipcRenderer.invoke` pair here and in `main.js`, never by loosening sandbox/contextIsolation.
 - `renderer/index.html` — single-file UI + script (no framework, no bundler, matches the style of the web version's tools). MediaRecorder/audio-mixing/timer/floating-badge/toast/beep logic is source-agnostic and works the same regardless of how the `MediaStream` was obtained — that part was ported from the web version close to verbatim. What's different from the web version: no `displaySurface` hint modal (replaced by the real thumbnail-grid picker fed by `desktopCapturer`), no "Browser Tab" option (Electron has no tabs), settings read/written via `window.recorderAPI.getSettings()/setSettings()` instead of `localStorage`, plus the additive `window.recorderAPI.onShortcut()` handler for the global hotkeys on top of the existing focused-window `R`/`P`/`Esc` keydown listener.
-- `start.js` — convenience script (`npm run release`) that runs `electron-builder --win nsis` then spawns the resulting installer `.exe` from `release/`.
+- `start.js` — convenience script (`npm run release`) that runs `electron-builder --win portable` then spawns the resulting self-contained `.exe` from `release/`. The build target is `portable` (set in `package.json`'s `build.win.target`), not `nsis` — double-clicking the output `.exe` launches the app immediately, with no installer wizard and nothing written outside itself.
 
 ## Known environment quirk (not a bug)
 

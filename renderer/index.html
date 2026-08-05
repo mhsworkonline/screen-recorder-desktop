@@ -259,7 +259,7 @@ if (!supported) {
   document.body.innerHTML = '<div class="page"><div class="card" style="text-align:center;padding:2.5rem 1.5rem"><h2>Screen recording unavailable</h2><p style="color:var(--text-muted);margin-top:8px">This build is missing required media APIs.</p></div></div>';
 }
 
-let mediaRecorder = null, chunks = [], displayStream = null, micStream = null, audioCtx = null;
+let mediaRecorder = null, chunks = [], displayStream = null, micStream = null, audioCtx = null, sysGainNode = null;
 let startTime = 0, pausedMs = 0, pauseStart = 0, timerId = null, blobUrl = null;
 let mimeType = '', container = 'webm', selectedFmt = 'webm', selectedQual = 'balanced';
 let autoStopMin = 0, autoStopTimer = null;
@@ -337,6 +337,10 @@ function recordingDotDataUrl(){
 }
 
 function beep(freq, dur){
+  // Duck the system-audio loopback path (if we're recording it) so this
+  // confirmation tone — played out loud for the user's benefit — doesn't
+  // get picked back up by the recording itself. Mic audio is unaffected.
+  duckSysAudio(dur);
   try {
     const ctx = beep._ctx || (beep._ctx = new (window.AudioContext || window.webkitAudioContext)());
     const osc = ctx.createOscillator(), gain = ctx.createGain();
@@ -344,6 +348,18 @@ function beep(freq, dur){
     gain.gain.value = 0.05;
     osc.connect(gain); gain.connect(ctx.destination);
     osc.start(); osc.stop(ctx.currentTime + dur / 1000);
+  } catch (e) {}
+}
+
+function duckSysAudio(dur){
+  if (!sysGainNode) return;
+  try {
+    const ctx = sysGainNode.context;
+    const now = ctx.currentTime;
+    const padSec = 0.15; // covers scheduling/loopback latency on either side of the tone
+    sysGainNode.gain.cancelScheduledValues(now);
+    sysGainNode.gain.setValueAtTime(0, now);
+    sysGainNode.gain.setValueAtTime(1, now + dur / 1000 + padSec);
   } catch (e) {}
 }
 
@@ -504,16 +520,27 @@ async function start(){
   const sysTracks = displayStream.getAudioTracks();
   const micTracks = micStream ? micStream.getAudioTracks() : [];
   let audioTrack = null;
+  sysGainNode = null;
 
   if (sysTracks.length && micTracks.length){
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch(e){} }
     const dest = audioCtx.createMediaStreamDestination();
-    audioCtx.createMediaStreamSource(new MediaStream(sysTracks)).connect(dest);
+    sysGainNode = audioCtx.createGain();
+    audioCtx.createMediaStreamSource(new MediaStream(sysTracks)).connect(sysGainNode).connect(dest);
     audioCtx.createMediaStreamSource(new MediaStream(micTracks)).connect(dest);
     audioTrack = dest.stream.getAudioTracks()[0];
+  } else if (sysTracks.length){
+    // Route sys-only audio through a gain node too (even with nothing else to
+    // mix) so the start/stop confirmation beep can duck itself out of it.
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch(e){} }
+    const dest = audioCtx.createMediaStreamDestination();
+    sysGainNode = audioCtx.createGain();
+    audioCtx.createMediaStreamSource(new MediaStream(sysTracks)).connect(sysGainNode).connect(dest);
+    audioTrack = dest.stream.getAudioTracks()[0];
   } else {
-    audioTrack = sysTracks[0] || micTracks[0] || null;
+    audioTrack = micTracks[0] || null;
   }
 
   const combined = new MediaStream([
@@ -602,6 +629,7 @@ function stopAllTracks(){
   if (displayStream) displayStream.getTracks().forEach(t => t.stop());
   if (micStream) micStream.getTracks().forEach(t => t.stop());
   if (audioCtx){ try { audioCtx.close(); } catch(e){} audioCtx = null; }
+  sysGainNode = null;
   displayStream = micStream = null;
 }
 

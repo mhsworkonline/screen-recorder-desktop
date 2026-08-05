@@ -6,8 +6,9 @@
   "scripts": {
     "start": "electron .",
     "pack": "electron-builder --win portable -c.productName=\"Screen Recorder (Test Build)\" -c.portable.artifactName=\"Screen Recorder (Test Build).exe\" && npm run clean:release",
-    "dist": "electron-builder --win nsis && npm run clean:release",
+    "dist": "electron-builder --win portable && npm run clean:release",
     "release": "node start.js",
+    "deploy": "node deploy.js",
     "clean:release": "node -e \"const fs=require('fs');fs.rmSync('release/win-unpacked',{recursive:true,force:true});fs.rmSync('release/builder-debug.yml',{force:true});fs.rmSync('release/builder-effective-config.yaml',{force:true})\""
   },
   "devDependencies": {
@@ -19,7 +20,7 @@
     "productName": "Screen Recorder",
     "directories": { "output": "release" },
     "files": ["main.js", "preload.js", "renderer/**/*"],
-    "win": { "target": "nsis" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "win": { "target": "portable" },
+    "portable": { "artifactName": "${productName} ${version}.exe" }
   }
 }
