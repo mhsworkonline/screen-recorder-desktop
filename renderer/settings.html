@@ -56,6 +56,13 @@ input[type=text]:focus{outline:2px solid var(--brand);outline-offset:-1px;backgr
 
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(12px);background:var(--text-dark);color:#fff;padding:9px 16px;border-radius:10px;font-size:12.5px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;box-shadow:0 4px 20px rgba(0,0,0,.15);max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.switch{position:relative;width:44px;height:24px;flex-shrink:0;cursor:pointer}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch .track{position:absolute;inset:0;background:#CFCEC9;border-radius:24px;transition:background .18s}
+.switch .thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .18s}
+.switch input:checked+.track{background:var(--brand)}
+.switch input:checked+.track+.thumb{left:23px}
 </style>
 </head>
 <body>
@@ -110,6 +117,17 @@ input[type=text]:focus{outline:2px solid var(--brand);outline-offset:-1px;backgr
   </div>
 
   <div class="card">
+    <div class="card-title">Sound</div>
+    <div class="row" style="border-top:none">
+      <div class="row-label">Beep on start / stop</div>
+      <div class="row-right">
+        <label class="switch"><input type="checkbox" id="opt-beep"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:8px">A short confirmation tone plays through your speakers when a recording starts or stops. It's automatically kept out of the recording itself, even with system audio capture on.</div>
+  </div>
+
+  <div class="card">
     <div class="card-title">Output folder</div>
     <div class="field">
       <div class="pathbox">
@@ -142,7 +160,7 @@ const ACTIONS = ['startStop', 'pause', 'cancel'];
 const KEY_MAP = { ' ': 'Space', 'ArrowUp': 'Up', 'ArrowDown': 'Down', 'ArrowLeft': 'Left', 'ArrowRight': 'Right', 'Enter': 'Return' };
 
 let shortcuts = {};
-let defaults = { shortcuts: {}, outputFolder: '', filenamePattern: '', countdownSeconds: 3 };
+let defaults = { shortcuts: {}, outputFolder: '', filenamePattern: '', countdownSeconds: 3, beepEnabled: true };
 let capturingAction = null;
 let countdownSeconds = 3;
 
@@ -279,6 +297,7 @@ async function boot(){
   renderFolder(settings.outputFolder);
   $('patternInput').value = settings.filenamePattern || defs.filenamePattern;
   renderPatternPreview();
+  $('opt-beep').checked = settings.beepEnabled !== false;
 
   document.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', () => startCapture(btn.dataset.action));
@@ -326,6 +345,12 @@ async function boot(){
     toast('Output folder reset');
   });
 
+  $('opt-beep').addEventListener('change', async () => {
+    const beepEnabled = $('opt-beep').checked;
+    await window.recorderAPI.setSettings({ beepEnabled });
+    toast(beepEnabled ? 'Beep enabled' : 'Beep disabled');
+  });
+
   $('patternInput').addEventListener('input', () => { renderPatternPreview(); schedulePatternSave(); });
   $('resetPattern').addEventListener('click', async () => {
     $('patternInput').value = defaults.filenamePattern;
@@ -338,6 +363,7 @@ async function boot(){
     if (!capturingAction) { shortcuts = s.shortcuts || shortcuts; renderShortcuts(); }
     if (typeof s.countdownSeconds === 'number'){ countdownSeconds = s.countdownSeconds; renderCountdown(); }
     if (document.activeElement !== $('patternInput')) $('patternInput').value = s.filenamePattern || $('patternInput').value;
+    if (document.activeElement !== $('opt-beep')) $('opt-beep').checked = s.beepEnabled !== false;
     renderFolder(s.outputFolder);
     renderPatternPreview();
   });

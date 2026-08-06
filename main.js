@@ -10,6 +10,7 @@ const DEFAULT_SHORTCUTS = {
 };
 const DEFAULT_FILENAME_PATTERN = 'Recording-{date}-{time}';
 const DEFAULT_COUNTDOWN_SECONDS = 3;
+const DEFAULT_BEEP_ENABLED = true;
 const SHORTCUT_ACTIONS = { startStop: 'start-stop', pause: 'pause', cancel: 'cancel' };
 
 let win = null;
@@ -25,6 +26,7 @@ function readSettings(){
     outputFolder: raw.outputFolder || app.getPath('downloads'),
     filenamePattern: raw.filenamePattern || DEFAULT_FILENAME_PATTERN,
     countdownSeconds: typeof raw.countdownSeconds === 'number' ? raw.countdownSeconds : DEFAULT_COUNTDOWN_SECONDS,
+    beepEnabled: typeof raw.beepEnabled === 'boolean' ? raw.beepEnabled : DEFAULT_BEEP_ENABLED,
   };
 }
 function writeSettings(patch){
@@ -204,6 +206,7 @@ app.whenReady().then(() => {
     outputFolder: app.getPath('downloads'),
     filenamePattern: DEFAULT_FILENAME_PATTERN,
     countdownSeconds: DEFAULT_COUNTDOWN_SECONDS,
+    beepEnabled: DEFAULT_BEEP_ENABLED,
   }));
   ipcMain.handle('settings:openWindow', () => openSettingsWindow());
   ipcMain.handle('dialog:chooseFolder', async () => {
