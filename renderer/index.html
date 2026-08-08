@@ -118,6 +118,16 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
 .picker-tile:hover{border-color:var(--brand);background:var(--brand-light)}
 .picker-tile img{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:6px;background:#000;display:block;margin-bottom:6px}
 .picker-tile .name{font-size:12px;font-weight:600;color:var(--text-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.blur-preview-wrap{position:relative;width:100%;border-radius:12px;overflow:hidden;background:#000;line-height:0}
+.blur-preview-wrap canvas{width:100%;height:auto;display:block}
+.blur-box{position:absolute;border:2px dashed #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.35);cursor:move;touch-action:none}
+.blur-handle{position:absolute;width:12px;height:12px;background:#fff;border:1px solid rgba(0,0,0,.4);border-radius:50%;touch-action:none}
+.blur-handle[data-h="nw"]{left:-6px;top:-6px;cursor:nwse-resize}
+.blur-handle[data-h="ne"]{right:-6px;top:-6px;cursor:nesw-resize}
+.blur-handle[data-h="sw"]{left:-6px;bottom:-6px;cursor:nesw-resize}
+.blur-handle[data-h="se"]{right:-6px;bottom:-6px;cursor:nwse-resize}
+.blur-hint{font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px}
 </style>
 </head>
 <body>
@@ -161,6 +171,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
             <div><div class="opt-txt-title">System audio</div><div class="opt-txt-sub">Sound from your PC</div></div>
           </div>
           <label class="switch"><input type="checkbox" id="opt-sys"><span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="opt">
+          <div class="opt-info">
+            <div class="opt-ico"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h4v4H8zM14 8h2M14 12h2M8 14h2M13 14h3v3h-3z" opacity=".6"/></svg></div>
+            <div><div class="opt-txt-title">Blur region</div><div class="opt-txt-sub">Hide part of the screen (e.g. passwords) — draggable while recording</div></div>
+          </div>
+          <label class="switch"><input type="checkbox" id="opt-blur"><span class="track"></span><span class="thumb"></span></label>
         </div>
       </div>
       <div class="fmt-row" id="srcRow" style="display:none">
@@ -211,11 +228,23 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
     <div class="card live" id="live">
       <div class="live-status" id="liveStatus"><span class="pulse"></span> <span id="statusText">Recording</span></div>
       <div class="timer" id="timer">00:00</div>
+      <div class="blur-preview-wrap" id="blurPreviewWrap" style="display:none">
+        <canvas id="recCanvas"></canvas>
+        <div class="blur-box" id="blurBox">
+          <div class="blur-handle" data-h="nw"></div>
+          <div class="blur-handle" data-h="ne"></div>
+          <div class="blur-handle" data-h="sw"></div>
+          <div class="blur-handle" data-h="se"></div>
+        </div>
+      </div>
+      <p class="blur-hint" id="blurHint" style="display:none">Drag the box or its corners to reposition — it's remembered for this source.</p>
+      <button type="button" class="btn src-reset" id="blurClearBtn" style="display:none;align-self:center">Clear saved blur region</button>
       <div class="live-controls">
         <button class="ctrl" id="pauseBtn">Pause</button>
         <button class="ctrl stop" id="stopBtn">Stop</button>
       </div>
     </div>
+    <video id="srcVideo" autoplay muted playsinline style="position:absolute;left:-9999px;top:0;width:1px;height:1px;opacity:0"></video>
 
     <div class="card result" id="result">
       <video id="preview" controls playsinline></video>
@@ -268,6 +297,14 @@ let starting = false;
 let pickingSource = false;
 let countdownSeconds = 3;
 
+// --- Blur region state ---
+let blurEnabled = false;
+let blurRect = null;           // { fx, fy, fw, fh } — fractions (0..1) of video width/height
+let blurRegionsMap = {};       // sourceKey -> saved blurRect
+let currentSourceKey = null;
+let recCanvas = null, recCtx = null, srcVideo = null, canvasVideoTrack = null, drawRafId = null;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
 const ORIGINAL_TITLE = document.title;
 
 function escapeHtml(s){
@@ -291,6 +328,10 @@ function renderGlobalShortcuts(settings){
 }
 
 function renderSourceRow(settings){
+  if (settings){
+    currentSourceKey = sourceKey(settings);
+    if (settings.blurRegions) blurRegionsMap = settings.blurRegions;
+  }
   const row = $('srcRow');
   if (!settings || !settings.sourceName){ row.style.display = 'none'; return; }
   row.style.display = '';
@@ -500,10 +541,13 @@ async function start(){
     await changeSource();
     return;
   }
+  blurRegionsMap = preSettings.blurRegions || {};
+  currentSourceKey = sourceKey(preSettings);
 
   const wantMic = $('opt-mic').checked;
   const wantSys = $('opt-sys').checked;
-  window.recorderAPI.setSettings({ mic: wantMic, sys: wantSys });
+  blurEnabled = $('opt-blur').checked;
+  window.recorderAPI.setSettings({ mic: wantMic, sys: wantSys, blurOn: blurEnabled });
 
   const q = QUALITY[selectedQual] || QUALITY.balanced;
   try {
@@ -519,6 +563,16 @@ async function start(){
     return;
   }
   window.recorderAPI.getSettings().then(renderSourceRow);
+
+  let videoTrackForRecorder = displayStream.getVideoTracks()[0];
+  if (blurEnabled){
+    try { videoTrackForRecorder = await setupBlurPipeline(); }
+    catch (err) {
+      showError('Blur preview failed — recording without blur: ' + (err && err.message || err));
+      blurEnabled = false;
+      teardownBlurPipeline();
+    }
+  }
 
   micStream = null;
   if (wantMic){
@@ -548,7 +602,7 @@ async function start(){
   }
 
   const combined = new MediaStream([
-    ...displayStream.getVideoTracks(),
+    videoTrackForRecorder,
     ...(audioTrack ? [audioTrack] : []),
   ]);
 
@@ -590,6 +644,10 @@ async function start(){
   $('setup').style.display = 'none';
   $('result').classList.remove('show');
   $('live').classList.add('show');
+  // #live was hidden (display:none) while setupBlurPipeline() ran, so any
+  // earlier positionBlurBox() call measured a collapsed 0×0 box — reposition
+  // now that the card actually has layout.
+  if (blurEnabled) positionBlurBox();
   $('floatRec').classList.add('show');
   $('liveStatus').classList.remove('paused');
   $('statusText').textContent = 'Recording';
@@ -636,6 +694,166 @@ function stopAllTracks(){
   clearTimeout(duckRestoreTid); duckRestoreTid = null;
   sysAudioTracks = [];
   displayStream = micStream = null;
+  teardownBlurPipeline();
+}
+
+// --- Blur region: source key + persistence ---
+function sourceKey(settings){
+  return (settings && (settings.sourceId || settings.sourceName)) || null;
+}
+function defaultBlurRect(){ return { fx: 0.3, fy: 0.3, fw: 0.4, fh: 0.3 }; }
+function currentBlurRectForKey(key){
+  if (key && blurRegionsMap[key]) return { ...blurRegionsMap[key] };
+  return defaultBlurRect();
+}
+function saveBlurRegionForSource(){
+  if (!currentSourceKey || !blurRect) return;
+  blurRegionsMap[currentSourceKey] = { ...blurRect };
+  window.recorderAPI.setSettings({ blurRegions: blurRegionsMap });
+  updateBlurClearBtn();
+}
+function clearBlurRegionForSource(){
+  if (!currentSourceKey) return;
+  delete blurRegionsMap[currentSourceKey];
+  window.recorderAPI.setSettings({ blurRegions: blurRegionsMap });
+  blurRect = defaultBlurRect();
+  positionBlurBox();
+  updateBlurClearBtn();
+  toast('Saved blur region cleared');
+}
+function updateBlurClearBtn(){
+  const has = !!(currentSourceKey && blurRegionsMap[currentSourceKey]);
+  $('blurClearBtn').style.display = (blurEnabled && has) ? '' : 'none';
+}
+
+// --- Blur region: canvas redaction pipeline ---
+// Draws each source frame onto recCanvas at native resolution, then redraws the
+// same frame a second time — clipped to the marked rect, with a blur filter —
+// on top. Drawing the *whole* frame for the blurred pass (not a pre-cropped
+// piece) means the blur has real neighboring-pixel context right up to the
+// rect's edges; clip() is what keeps it confined to just that rect.
+function startDrawLoop(){
+  cancelAnimationFrame(drawRafId);
+  const step = () => {
+    if (recCtx && srcVideo && srcVideo.readyState >= 2){
+      recCtx.drawImage(srcVideo, 0, 0, recCanvas.width, recCanvas.height);
+      if (blurEnabled && blurRect){
+        const x = blurRect.fx * recCanvas.width;
+        const y = blurRect.fy * recCanvas.height;
+        const w = blurRect.fw * recCanvas.width;
+        const h = blurRect.fh * recCanvas.height;
+        const px = clamp(Math.round(recCanvas.width / 80), 12, 40);
+        recCtx.save();
+        recCtx.beginPath();
+        recCtx.rect(x, y, w, h);
+        recCtx.clip();
+        recCtx.filter = `blur(${px}px)`;
+        recCtx.drawImage(srcVideo, 0, 0, recCanvas.width, recCanvas.height);
+        recCtx.filter = 'none';
+        recCtx.restore();
+      }
+    }
+    drawRafId = requestAnimationFrame(step);
+  };
+  drawRafId = requestAnimationFrame(step);
+}
+function stopDrawLoop(){
+  if (drawRafId) cancelAnimationFrame(drawRafId);
+  drawRafId = null;
+}
+
+async function setupBlurPipeline(){
+  if (!srcVideo) srcVideo = $('srcVideo');
+  if (!recCanvas){ recCanvas = $('recCanvas'); recCtx = recCanvas.getContext('2d'); }
+  srcVideo.srcObject = new MediaStream([displayStream.getVideoTracks()[0]]);
+  await new Promise((resolve, reject) => {
+    if (srcVideo.videoWidth) return resolve();
+    srcVideo.onloadedmetadata = () => resolve();
+    setTimeout(() => reject(new Error('timed out waiting for video metadata')), 4000);
+  });
+  await srcVideo.play().catch(() => {});
+  recCanvas.width = srcVideo.videoWidth;
+  recCanvas.height = srcVideo.videoHeight;
+  blurRect = currentBlurRectForKey(currentSourceKey);
+  $('blurPreviewWrap').style.display = '';
+  $('blurHint').style.display = '';
+  positionBlurBox();
+  updateBlurClearBtn();
+  startDrawLoop();
+  const q = QUALITY[selectedQual] || QUALITY.balanced;
+  const stream = recCanvas.captureStream(q.fps);
+  canvasVideoTrack = stream.getVideoTracks()[0];
+  return canvasVideoTrack;
+}
+function teardownBlurPipeline(){
+  stopDrawLoop();
+  if (srcVideo) srcVideo.srcObject = null;
+  if (canvasVideoTrack){ canvasVideoTrack.stop(); canvasVideoTrack = null; }
+  $('blurPreviewWrap').style.display = 'none';
+  $('blurHint').style.display = 'none';
+}
+
+// --- Blur region: drag / resize overlay ---
+function positionBlurBox(){
+  if (!recCanvas || !blurRect) return;
+  const rect = recCanvas.getBoundingClientRect();
+  const wrapRect = $('blurPreviewWrap').getBoundingClientRect();
+  const box = $('blurBox');
+  box.style.left = ((rect.left - wrapRect.left) + blurRect.fx * rect.width) + 'px';
+  box.style.top = ((rect.top - wrapRect.top) + blurRect.fy * rect.height) + 'px';
+  box.style.width = (blurRect.fw * rect.width) + 'px';
+  box.style.height = (blurRect.fh * rect.height) + 'px';
+}
+function initBlurBoxInteraction(){
+  const MIN_F = 0.04;
+  $('blurBox').addEventListener('pointerdown', e => {
+    if (e.target.classList.contains('blur-handle') || !recCanvas || !blurRect) return;
+    e.preventDefault();
+    const rect = recCanvas.getBoundingClientRect();
+    const startX = e.clientX, startY = e.clientY, orig = { ...blurRect };
+    const move = ev => {
+      blurRect.fx = clamp(orig.fx + (ev.clientX - startX) / rect.width, 0, 1 - orig.fw);
+      blurRect.fy = clamp(orig.fy + (ev.clientY - startY) / rect.height, 0, 1 - orig.fh);
+      positionBlurBox();
+    };
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      saveBlurRegionForSource();
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  });
+  $('blurBox').querySelectorAll('.blur-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      if (!recCanvas || !blurRect) return;
+      e.preventDefault(); e.stopPropagation();
+      const corner = handle.dataset.h;
+      const rect = recCanvas.getBoundingClientRect();
+      const startX = e.clientX, startY = e.clientY, orig = { ...blurRect };
+      const move = ev => {
+        const dxF = (ev.clientX - startX) / rect.width;
+        const dyF = (ev.clientY - startY) / rect.height;
+        let { fx, fy, fw, fh } = orig;
+        if (corner.includes('e')) fw = clamp(orig.fw + dxF, MIN_F, 1 - orig.fx);
+        if (corner.includes('s')) fh = clamp(orig.fh + dyF, MIN_F, 1 - orig.fy);
+        if (corner.includes('w')){ fx = clamp(orig.fx + dxF, 0, orig.fx + orig.fw - MIN_F); fw = orig.fw - (fx - orig.fx); }
+        if (corner.includes('n')){ fy = clamp(orig.fy + dyF, 0, orig.fy + orig.fh - MIN_F); fh = orig.fh - (fy - orig.fy); }
+        blurRect = { fx, fy, fw, fh };
+        positionBlurBox();
+      };
+      const up = () => {
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+        saveBlurRegionForSource();
+      };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+    });
+  });
+  window.addEventListener('resize', () => {
+    if ($('blurPreviewWrap').style.display !== 'none') positionBlurBox();
+  });
 }
 
 function finish(){
@@ -732,6 +950,9 @@ async function boot(){
   const settings = await window.recorderAPI.getSettings();
   $('opt-mic').checked = !!settings.mic;
   $('opt-sys').checked = !!settings.sys;
+  $('opt-blur').checked = !!settings.blurOn;
+  blurRegionsMap = settings.blurRegions || {};
+  currentSourceKey = sourceKey(settings);
   renderSourceRow(settings);
   renderGlobalShortcuts(settings);
   countdownSeconds = typeof settings.countdownSeconds === 'number' ? settings.countdownSeconds : 3;
@@ -742,6 +963,8 @@ async function boot(){
   initAuto(settings.autostop || 0);
   initShortcutsPanel();
   initKeyboardShortcuts();
+  initBlurBoxInteraction();
+  $('blurClearBtn').addEventListener('click', clearBlurRegionForSource);
 
   window.recorderAPI.onPickerShow(renderPicker);
   window.recorderAPI.onSettingsChanged(s => {
