@@ -121,13 +121,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
 
 .blur-preview-wrap{position:relative;width:100%;border-radius:12px;overflow:hidden;background:#000;line-height:0}
 .blur-preview-wrap canvas{width:100%;height:auto;display:block}
-.blur-box{position:absolute;border:2px dashed #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.35);cursor:move;touch-action:none}
+.blur-box{position:absolute;border:2px dashed #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.22);cursor:move;touch-action:none}
 .blur-handle{position:absolute;width:12px;height:12px;background:#fff;border:1px solid rgba(0,0,0,.4);border-radius:50%;touch-action:none}
 .blur-handle[data-h="nw"]{left:-6px;top:-6px;cursor:nwse-resize}
 .blur-handle[data-h="ne"]{right:-6px;top:-6px;cursor:nesw-resize}
 .blur-handle[data-h="sw"]{left:-6px;bottom:-6px;cursor:nesw-resize}
 .blur-handle[data-h="se"]{right:-6px;bottom:-6px;cursor:nwse-resize}
+.blur-del{position:absolute;top:-11px;right:-11px;width:20px;height:20px;border-radius:50%;background:var(--rec);color:#fff;border:1px solid #fff;font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .blur-hint{font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px}
+.blur-btn-row{display:none;gap:8px;justify-content:center;margin-top:2px}
 </style>
 </head>
 <body>
@@ -230,15 +232,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
       <div class="timer" id="timer">00:00</div>
       <div class="blur-preview-wrap" id="blurPreviewWrap" style="display:none">
         <canvas id="recCanvas"></canvas>
-        <div class="blur-box" id="blurBox">
-          <div class="blur-handle" data-h="nw"></div>
-          <div class="blur-handle" data-h="ne"></div>
-          <div class="blur-handle" data-h="sw"></div>
-          <div class="blur-handle" data-h="se"></div>
-        </div>
       </div>
-      <p class="blur-hint" id="blurHint" style="display:none">Drag the box or its corners to reposition — it's remembered for this source.</p>
-      <button type="button" class="btn src-reset" id="blurClearBtn" style="display:none;align-self:center">Clear saved blur region</button>
+      <p class="blur-hint" id="blurHint" style="display:none">Drag a box or its corners to reposition — recording pauses automatically while you adjust.</p>
+      <div class="blur-btn-row" id="blurBtnRow">
+        <button type="button" class="btn src-reset" id="blurAddBtn">+ Add box</button>
+        <button type="button" class="btn src-reset" id="blurClearBtn" style="display:none">Clear saved regions</button>
+      </div>
       <div class="live-controls">
         <button class="ctrl" id="pauseBtn">Pause</button>
         <button class="ctrl stop" id="stopBtn">Stop</button>
@@ -299,10 +298,12 @@ let countdownSeconds = 3;
 
 // --- Blur region state ---
 let blurEnabled = false;
-let blurRect = null;           // { fx, fy, fw, fh } — fractions (0..1) of video width/height
-let blurRegionsMap = {};       // sourceKey -> saved blurRect
+let blurRects = [];            // [{ fx, fy, fw, fh }, ...] — fractions (0..1) of video width/height
+let blurRegionsMap = {};       // sourceKey -> saved blurRects array
 let currentSourceKey = null;
 let recCanvas = null, recCtx = null, srcVideo = null, canvasVideoTrack = null, drawRafId = null;
+let blurLayerCanvas = null, blurLayerCtx = null; // one full-frame blurred pass, stamped per box
+let autoPausedForBlur = false; // true only when WE paused for a drag/resize, so we don't clobber a manual pause
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 const ORIGINAL_TITLE = document.title;
@@ -645,9 +646,9 @@ async function start(){
   $('result').classList.remove('show');
   $('live').classList.add('show');
   // #live was hidden (display:none) while setupBlurPipeline() ran, so any
-  // earlier positionBlurBox() call measured a collapsed 0×0 box — reposition
-  // now that the card actually has layout.
-  if (blurEnabled) positionBlurBox();
+  // earlier positionAllBlurBoxes() call measured a collapsed 0×0 box —
+  // reposition now that the card actually has layout.
+  if (blurEnabled) positionAllBlurBoxes();
   $('floatRec').classList.add('show');
   $('liveStatus').classList.remove('paused');
   $('statusText').textContent = 'Recording';
@@ -702,55 +703,110 @@ function sourceKey(settings){
   return (settings && (settings.sourceId || settings.sourceName)) || null;
 }
 function defaultBlurRect(){ return { fx: 0.3, fy: 0.3, fw: 0.4, fh: 0.3 }; }
-function currentBlurRectForKey(key){
-  if (key && blurRegionsMap[key]) return { ...blurRegionsMap[key] };
-  return defaultBlurRect();
+// Reads the saved regions for a source. Also accepts the old single-rect
+// object shape (from before multi-box support) and upgrades it to a
+// one-element array, so anything saved by an earlier build still loads.
+function currentBlurRectsForKey(key){
+  const saved = key ? blurRegionsMap[key] : null;
+  if (Array.isArray(saved) && saved.length) return saved.map(r => ({ ...r }));
+  if (saved && typeof saved.fx === 'number') return [{ ...saved }];
+  return [defaultBlurRect()];
 }
-function saveBlurRegionForSource(){
-  if (!currentSourceKey || !blurRect) return;
-  blurRegionsMap[currentSourceKey] = { ...blurRect };
+function saveBlurRegionsForSource(){
+  if (!currentSourceKey) return;
+  if (blurRects.length) blurRegionsMap[currentSourceKey] = blurRects.map(r => ({ ...r }));
+  else delete blurRegionsMap[currentSourceKey];
   window.recorderAPI.setSettings({ blurRegions: blurRegionsMap });
   updateBlurClearBtn();
 }
-function clearBlurRegionForSource(){
+function clearBlurRegionsForSource(){
   if (!currentSourceKey) return;
   delete blurRegionsMap[currentSourceKey];
   window.recorderAPI.setSettings({ blurRegions: blurRegionsMap });
-  blurRect = defaultBlurRect();
-  positionBlurBox();
+  blurRects = [defaultBlurRect()];
+  renderBlurBoxes();
   updateBlurClearBtn();
-  toast('Saved blur region cleared');
+  toast('Saved blur regions cleared');
 }
 function updateBlurClearBtn(){
   const has = !!(currentSourceKey && blurRegionsMap[currentSourceKey]);
   $('blurClearBtn').style.display = (blurEnabled && has) ? '' : 'none';
 }
+function addBlurBox(){
+  const n = blurRects.length;
+  const base = defaultBlurRect();
+  const offset = 0.05 * n;
+  blurRects.push({
+    fx: clamp(base.fx + offset, 0, 1 - base.fw),
+    fy: clamp(base.fy + offset, 0, 1 - base.fh),
+    fw: base.fw,
+    fh: base.fh,
+  });
+  renderBlurBoxes();
+  saveBlurRegionsForSource();
+}
+function removeBlurBox(idx){
+  blurRects.splice(idx, 1);
+  renderBlurBoxes();
+  saveBlurRegionsForSource();
+}
+
+// --- Blur region: pause the actual recording while a box is being adjusted ---
+// Dragging/resizing runs frame-by-frame with the box wherever the pointer
+// currently is — mid-adjustment that can briefly sit over content it wasn't
+// meant to cover. Pausing MediaRecorder for the duration of the gesture keeps
+// that out of the saved file entirely; the live canvas keeps drawing so the
+// preview stays interactive, only the *recorded* stream stops advancing.
+function pauseForBlurAdjust(){
+  if (mediaRecorder && mediaRecorder.state === 'recording'){
+    mediaRecorder.pause();
+    pauseStart = Date.now();
+    autoPausedForBlur = true;
+    $('liveStatus').classList.add('paused');
+    $('statusText').textContent = 'Paused — positioning blur box';
+    $('pauseBtn').textContent = 'Resume';
+  }
+}
+function resumeAfterBlurAdjust(){
+  if (autoPausedForBlur && mediaRecorder && mediaRecorder.state === 'paused'){
+    mediaRecorder.resume();
+    pausedMs += Date.now() - pauseStart;
+    $('liveStatus').classList.remove('paused');
+    $('statusText').textContent = 'Recording';
+    $('pauseBtn').textContent = 'Pause';
+  }
+  autoPausedForBlur = false;
+}
 
 // --- Blur region: canvas redaction pipeline ---
-// Draws each source frame onto recCanvas at native resolution, then redraws the
-// same frame a second time — clipped to the marked rect, with a blur filter —
-// on top. Drawing the *whole* frame for the blurred pass (not a pre-cropped
-// piece) means the blur has real neighboring-pixel context right up to the
-// rect's edges; clip() is what keeps it confined to just that rect.
+// Each frame: draw the source once at full res, then draw it a second time
+// through a blur filter into a same-size offscreen layer — just once,
+// regardless of how many boxes exist — and stamp each box's rectangle out of
+// that pre-blurred layer onto the recorded canvas. Stamping from a
+// *full-frame* blurred layer (rather than blurring each box's crop on its
+// own) means every box's blur has real neighboring-pixel context right up to
+// its edges, and adding more boxes costs one cheap drawImage each, not
+// another blur pass.
 function startDrawLoop(){
   cancelAnimationFrame(drawRafId);
   const step = () => {
     if (recCtx && srcVideo && srcVideo.readyState >= 2){
       recCtx.drawImage(srcVideo, 0, 0, recCanvas.width, recCanvas.height);
-      if (blurEnabled && blurRect){
-        const x = blurRect.fx * recCanvas.width;
-        const y = blurRect.fy * recCanvas.height;
-        const w = blurRect.fw * recCanvas.width;
-        const h = blurRect.fh * recCanvas.height;
+      if (blurEnabled && blurRects.length){
+        if (!blurLayerCanvas){ blurLayerCanvas = document.createElement('canvas'); blurLayerCtx = blurLayerCanvas.getContext('2d'); }
+        if (blurLayerCanvas.width !== recCanvas.width || blurLayerCanvas.height !== recCanvas.height){
+          blurLayerCanvas.width = recCanvas.width;
+          blurLayerCanvas.height = recCanvas.height;
+        }
         const px = clamp(Math.round(recCanvas.width / 80), 12, 40);
-        recCtx.save();
-        recCtx.beginPath();
-        recCtx.rect(x, y, w, h);
-        recCtx.clip();
-        recCtx.filter = `blur(${px}px)`;
-        recCtx.drawImage(srcVideo, 0, 0, recCanvas.width, recCanvas.height);
-        recCtx.filter = 'none';
-        recCtx.restore();
+        blurLayerCtx.filter = `blur(${px}px)`;
+        blurLayerCtx.drawImage(srcVideo, 0, 0, recCanvas.width, recCanvas.height);
+        blurLayerCtx.filter = 'none';
+        blurRects.forEach(r => {
+          const x = r.fx * recCanvas.width, y = r.fy * recCanvas.height;
+          const w = r.fw * recCanvas.width, h = r.fh * recCanvas.height;
+          recCtx.drawImage(blurLayerCanvas, x, y, w, h, x, y, w, h);
+        });
       }
     }
     drawRafId = requestAnimationFrame(step);
@@ -774,11 +830,11 @@ async function setupBlurPipeline(){
   await srcVideo.play().catch(() => {});
   recCanvas.width = srcVideo.videoWidth;
   recCanvas.height = srcVideo.videoHeight;
-  blurRect = currentBlurRectForKey(currentSourceKey);
+  blurRects = currentBlurRectsForKey(currentSourceKey);
   $('blurPreviewWrap').style.display = '';
   $('blurHint').style.display = '';
-  positionBlurBox();
-  updateBlurClearBtn();
+  $('blurBtnRow').style.display = 'flex';
+  renderBlurBoxes();
   startDrawLoop();
   const q = QUALITY[selectedQual] || QUALITY.balanced;
   const stream = recCanvas.captureStream(q.fps);
@@ -791,46 +847,74 @@ function teardownBlurPipeline(){
   if (canvasVideoTrack){ canvasVideoTrack.stop(); canvasVideoTrack = null; }
   $('blurPreviewWrap').style.display = 'none';
   $('blurHint').style.display = 'none';
+  $('blurBtnRow').style.display = 'none';
+  $('blurPreviewWrap').querySelectorAll('.blur-box').forEach(el => el.remove());
 }
 
-// --- Blur region: drag / resize overlay ---
-function positionBlurBox(){
-  if (!recCanvas || !blurRect) return;
+// --- Blur region: drag / resize overlay (one element per box) ---
+function positionAllBlurBoxes(){
+  if (!recCanvas) return;
   const rect = recCanvas.getBoundingClientRect();
   const wrapRect = $('blurPreviewWrap').getBoundingClientRect();
-  const box = $('blurBox');
-  box.style.left = ((rect.left - wrapRect.left) + blurRect.fx * rect.width) + 'px';
-  box.style.top = ((rect.top - wrapRect.top) + blurRect.fy * rect.height) + 'px';
-  box.style.width = (blurRect.fw * rect.width) + 'px';
-  box.style.height = (blurRect.fh * rect.height) + 'px';
+  $('blurPreviewWrap').querySelectorAll('.blur-box').forEach(box => {
+    const r = blurRects[Number(box.dataset.idx)];
+    if (!r) return;
+    box.style.left = ((rect.left - wrapRect.left) + r.fx * rect.width) + 'px';
+    box.style.top = ((rect.top - wrapRect.top) + r.fy * rect.height) + 'px';
+    box.style.width = (r.fw * rect.width) + 'px';
+    box.style.height = (r.fh * rect.height) + 'px';
+  });
 }
-function initBlurBoxInteraction(){
+function renderBlurBoxes(){
+  const wrap = $('blurPreviewWrap');
+  wrap.querySelectorAll('.blur-box').forEach(el => el.remove());
+  blurRects.forEach((_, idx) => {
+    const box = document.createElement('div');
+    box.className = 'blur-box';
+    box.dataset.idx = String(idx);
+    box.innerHTML = `
+      <div class="blur-handle" data-h="nw"></div>
+      <div class="blur-handle" data-h="ne"></div>
+      <div class="blur-handle" data-h="sw"></div>
+      <div class="blur-handle" data-h="se"></div>
+      <button type="button" class="blur-del" title="Remove this box">×</button>
+    `;
+    wrap.appendChild(box);
+    wireBoxInteraction(box, idx);
+  });
+  positionAllBlurBoxes();
+  updateBlurClearBtn();
+}
+function wireBoxInteraction(box, idx){
   const MIN_F = 0.04;
-  $('blurBox').addEventListener('pointerdown', e => {
-    if (e.target.classList.contains('blur-handle') || !recCanvas || !blurRect) return;
+  box.addEventListener('pointerdown', e => {
+    if (e.target.classList.contains('blur-handle') || e.target.classList.contains('blur-del') || !recCanvas) return;
     e.preventDefault();
     const rect = recCanvas.getBoundingClientRect();
-    const startX = e.clientX, startY = e.clientY, orig = { ...blurRect };
+    const startX = e.clientX, startY = e.clientY, orig = { ...blurRects[idx] };
+    pauseForBlurAdjust();
     const move = ev => {
-      blurRect.fx = clamp(orig.fx + (ev.clientX - startX) / rect.width, 0, 1 - orig.fw);
-      blurRect.fy = clamp(orig.fy + (ev.clientY - startY) / rect.height, 0, 1 - orig.fh);
-      positionBlurBox();
+      blurRects[idx].fx = clamp(orig.fx + (ev.clientX - startX) / rect.width, 0, 1 - orig.fw);
+      blurRects[idx].fy = clamp(orig.fy + (ev.clientY - startY) / rect.height, 0, 1 - orig.fh);
+      positionAllBlurBoxes();
     };
     const up = () => {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', up);
-      saveBlurRegionForSource();
+      saveBlurRegionsForSource();
+      resumeAfterBlurAdjust();
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', up);
   });
-  $('blurBox').querySelectorAll('.blur-handle').forEach(handle => {
+  box.querySelectorAll('.blur-handle').forEach(handle => {
     handle.addEventListener('pointerdown', e => {
-      if (!recCanvas || !blurRect) return;
+      if (!recCanvas) return;
       e.preventDefault(); e.stopPropagation();
       const corner = handle.dataset.h;
       const rect = recCanvas.getBoundingClientRect();
-      const startX = e.clientX, startY = e.clientY, orig = { ...blurRect };
+      const startX = e.clientX, startY = e.clientY, orig = { ...blurRects[idx] };
+      pauseForBlurAdjust();
       const move = ev => {
         const dxF = (ev.clientX - startX) / rect.width;
         const dyF = (ev.clientY - startY) / rect.height;
@@ -839,20 +923,30 @@ function initBlurBoxInteraction(){
         if (corner.includes('s')) fh = clamp(orig.fh + dyF, MIN_F, 1 - orig.fy);
         if (corner.includes('w')){ fx = clamp(orig.fx + dxF, 0, orig.fx + orig.fw - MIN_F); fw = orig.fw - (fx - orig.fx); }
         if (corner.includes('n')){ fy = clamp(orig.fy + dyF, 0, orig.fy + orig.fh - MIN_F); fh = orig.fh - (fy - orig.fy); }
-        blurRect = { fx, fy, fw, fh };
-        positionBlurBox();
+        blurRects[idx] = { fx, fy, fw, fh };
+        positionAllBlurBoxes();
       };
       const up = () => {
         document.removeEventListener('pointermove', move);
         document.removeEventListener('pointerup', up);
-        saveBlurRegionForSource();
+        saveBlurRegionsForSource();
+        resumeAfterBlurAdjust();
       };
       document.addEventListener('pointermove', move);
       document.addEventListener('pointerup', up);
     });
   });
+  box.querySelector('.blur-del').addEventListener('pointerdown', e => e.stopPropagation());
+  box.querySelector('.blur-del').addEventListener('click', e => {
+    e.stopPropagation();
+    removeBlurBox(idx);
+  });
+}
+function initBlurUI(){
+  $('blurAddBtn').addEventListener('click', addBlurBox);
+  $('blurClearBtn').addEventListener('click', clearBlurRegionsForSource);
   window.addEventListener('resize', () => {
-    if ($('blurPreviewWrap').style.display !== 'none') positionBlurBox();
+    if ($('blurPreviewWrap').style.display !== 'none') positionAllBlurBoxes();
   });
 }
 
@@ -963,8 +1057,7 @@ async function boot(){
   initAuto(settings.autostop || 0);
   initShortcutsPanel();
   initKeyboardShortcuts();
-  initBlurBoxInteraction();
-  $('blurClearBtn').addEventListener('click', clearBlurRegionForSource);
+  initBlurUI();
 
   window.recorderAPI.onPickerShow(renderPicker);
   window.recorderAPI.onSettingsChanged(s => {
