@@ -209,6 +209,17 @@ app.whenReady().then(() => {
     beepEnabled: DEFAULT_BEEP_ENABLED,
   }));
   ipcMain.handle('settings:openWindow', () => openSettingsWindow());
+  // The picker UI only exists in the main window's DOM, so "Change source"
+  // from the Settings window resets the stored source and hands off to the
+  // main window to actually show it — creating that window first if it was
+  // closed (settingsWin can outlive win; window-all-closed only quits once
+  // every window is gone).
+  ipcMain.handle('source:openPicker', () => {
+    writeSettings({ sourceId: undefined, sourceName: undefined, sourceType: undefined });
+    const send = () => { win.show(); win.focus(); win.webContents.send('source:openPicker'); };
+    if (win) send();
+    else { createWindow(); win.webContents.once('did-finish-load', send); }
+  });
   ipcMain.handle('dialog:chooseFolder', async () => {
     const parent = settingsWin || win;
     const result = await dialog.showOpenDialog(parent, {

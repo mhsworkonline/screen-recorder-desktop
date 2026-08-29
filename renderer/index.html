@@ -289,6 +289,7 @@ if (!supported) {
 
 let mediaRecorder = null, chunks = [], displayStream = null, micStream = null, audioCtx = null;
 let sysAudioTracks = [], duckRestoreTid = null, beepEnabled = true;
+let keepAliveCtx = null, keepAliveOsc = null;
 let startTime = 0, pausedMs = 0, pauseStart = 0, timerId = null, blobUrl = null;
 let mimeType = '', container = 'webm', selectedFmt = 'webm', selectedQual = 'balanced';
 let autoStopMin = 0, autoStopTimer = null;
@@ -400,6 +401,35 @@ function beep(freq, dur){
     osc.connect(gain); gain.connect(ctx.destination);
     osc.start(); osc.stop(ctx.currentTime + dur / 1000);
   } catch (e) {}
+}
+
+// Windows' shared-mode audio engine can let the default output device go idle
+// during silence. When something then plays a short, one-off sound (a button
+// click SFX, a UI ding) right after that idle gap, the real speakers can start
+// a beat before the loopback capture feeding getDisplayMedia's audio track
+// wakes back up — so the very start of that short sound gets clipped or
+// dropped entirely from the recording, while sustained audio (video/music
+// playback) is unaffected because the session was already active when it
+// started. Playing a continuous, effectively inaudible tone through the real
+// output for the life of the recording keeps that session alive so short
+// sounds right after silence aren't the "first" sound waking it up anymore.
+function startSysAudioKeepAlive(){
+  if (keepAliveCtx) return;
+  try {
+    keepAliveCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const gain = keepAliveCtx.createGain();
+    gain.gain.value = 0.00003; // far below audible/noise-floor — just enough to keep the render session active
+    keepAliveOsc = keepAliveCtx.createOscillator();
+    keepAliveOsc.frequency.value = 20; // sub-bass, unobtrusive even before the near-zero gain
+    keepAliveOsc.connect(gain);
+    gain.connect(keepAliveCtx.destination);
+    keepAliveOsc.start();
+  } catch (e) {}
+}
+function stopSysAudioKeepAlive(){
+  try { if (keepAliveOsc) keepAliveOsc.stop(); } catch (e) {}
+  try { if (keepAliveCtx) keepAliveCtx.close(); } catch (e) {}
+  keepAliveOsc = null; keepAliveCtx = null;
 }
 
 function duckSysAudio(dur){
@@ -590,6 +620,7 @@ async function start(){
   // whatever Web Audio graph they end up wired into below — so the beep
   // confirmation tone can mute them for its own duration (see duckSysAudio).
   sysAudioTracks = sysTracks;
+  if (sysTracks.length) startSysAudioKeepAlive();
 
   if (sysTracks.length && micTracks.length){
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -694,6 +725,7 @@ function stopAllTracks(){
   if (audioCtx){ try { audioCtx.close(); } catch(e){} audioCtx = null; }
   clearTimeout(duckRestoreTid); duckRestoreTid = null;
   sysAudioTracks = [];
+  stopSysAudioKeepAlive();
   displayStream = micStream = null;
   teardownBlurPipeline();
 }
@@ -1060,6 +1092,7 @@ async function boot(){
   initBlurUI();
 
   window.recorderAPI.onPickerShow(renderPicker);
+  window.recorderAPI.onOpenSourcePicker(() => changeSource());
   window.recorderAPI.onSettingsChanged(s => {
     renderGlobalShortcuts(s);
     if (typeof s.countdownSeconds === 'number') countdownSeconds = s.countdownSeconds;

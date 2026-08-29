@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('recorderAPI', {
   getDefaults: () => ipcRenderer.invoke('settings:getDefaults'),
   resetSource: () => ipcRenderer.invoke('settings:resetSource'),
   openSettings: () => ipcRenderer.invoke('settings:openWindow'),
+  openSourcePicker: () => ipcRenderer.invoke('source:openPicker'),
+  onOpenSourcePicker: (cb) => ipcRenderer.on('source:openPicker', () => cb()),
   chooseFolder: () => ipcRenderer.invoke('dialog:chooseFolder'),
   setShortcuts: (shortcuts) => ipcRenderer.invoke('shortcuts:set', shortcuts),
   suspendShortcuts: () => ipcRenderer.invoke('shortcuts:suspend'),

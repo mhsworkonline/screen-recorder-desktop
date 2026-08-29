@@ -73,6 +73,17 @@ input[type=text]:focus{outline:2px solid var(--brand);outline-offset:-1px;backgr
   </div>
 
   <div class="card">
+    <div class="card-title">Source</div>
+    <div class="row" style="border-top:none">
+      <div class="row-label" id="srcLabel">Not set</div>
+      <div class="row-right">
+        <button class="btn" id="srcChangeBtn" type="button">Change</button>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:8px">The screen or window that gets recorded, remembered so nothing asks again. Change opens the picker in the main window.</div>
+  </div>
+
+  <div class="card">
     <div class="card-title">Global shortcuts</div>
     <div class="row">
       <div class="row-label">Start / stop</div>
@@ -256,6 +267,12 @@ function renderCountdown(){
   });
 }
 
+function renderSource(settings){
+  $('srcLabel').textContent = (settings && settings.sourceName)
+    ? (settings.sourceType === 'screen' ? 'Screen — ' : 'Window — ') + settings.sourceName
+    : 'Not set';
+}
+
 function renderFolder(folder){
   $('folderPath').textContent = folder || '—';
   $('folderPath').title = folder || '';
@@ -292,12 +309,15 @@ async function boot(){
   defaults = defs;
   shortcuts = settings.shortcuts || defs.shortcuts;
   renderShortcuts();
+  renderSource(settings);
   countdownSeconds = typeof settings.countdownSeconds === 'number' ? settings.countdownSeconds : defs.countdownSeconds;
   renderCountdown();
   renderFolder(settings.outputFolder);
   $('patternInput').value = settings.filenamePattern || defs.filenamePattern;
   renderPatternPreview();
   $('opt-beep').checked = settings.beepEnabled !== false;
+
+  $('srcChangeBtn').addEventListener('click', () => window.recorderAPI.openSourcePicker());
 
   document.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', () => startCapture(btn.dataset.action));
@@ -360,6 +380,7 @@ async function boot(){
   });
 
   window.recorderAPI.onSettingsChanged(s => {
+    renderSource(s);
     if (!capturingAction) { shortcuts = s.shortcuts || shortcuts; renderShortcuts(); }
     if (typeof s.countdownSeconds === 'number'){ countdownSeconds = s.countdownSeconds; renderCountdown(); }
     if (document.activeElement !== $('patternInput')) $('patternInput').value = s.filenamePattern || $('patternInput').value;
