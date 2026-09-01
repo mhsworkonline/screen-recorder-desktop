@@ -108,15 +108,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
 .srcmodal{position:fixed;inset:0;background:rgba(24,24,26,.75);display:none;align-items:center;justify-content:center;z-index:70;padding:1rem}
 .srcmodal.show{display:flex}
 .srcmodal-card{background:var(--surface);border-radius:16px;padding:1.75rem;max-width:360px;width:100%;text-align:center;box-shadow:var(--shadow-lg)}
-.srcmodal-card.wide{max-width:520px;text-align:left}
+.srcmodal-card.wide{max-width:1100px;width:92vw;text-align:left}
 .srcmodal-card h3{font-size:17px;margin-bottom:8px}
 .srcmodal-card p{font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:18px}
-.picker-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;max-height:360px;overflow-y:auto;padding:2px}
-.picker-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:14px 0 8px;grid-column:1/-1}
+.picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;max-height:72vh;overflow-y:auto;padding:2px}
+.picker-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:14px 0 8px;padding:6px 0;grid-column:1/-1;position:sticky;top:0;background:var(--surface);z-index:1}
 .picker-section-title:first-child{margin-top:0}
 .picker-tile{border:1px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;background:var(--surface-alt);transition:border-color .15s,background .15s}
 .picker-tile:hover{border-color:var(--brand);background:var(--brand-light)}
-.picker-tile img{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:6px;background:#000;display:block;margin-bottom:6px}
+.picker-tile img{width:100%;aspect-ratio:16/10;object-fit:contain;border-radius:6px;background:#000;display:block;margin-bottom:6px}
 .picker-tile .name{font-size:12px;font-weight:600;color:var(--text-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .blur-preview-wrap{position:relative;width:100%;border-radius:12px;overflow:hidden;background:#000;line-height:0}
@@ -182,7 +182,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
           <label class="switch"><input type="checkbox" id="opt-blur"><span class="track"></span><span class="thumb"></span></label>
         </div>
       </div>
-      <div class="fmt-row" id="srcRow" style="display:none">
+      <div class="fmt-row" id="srcRow">
         <div class="fmt-label">
           <div class="opt-txt-title">Source</div>
           <div class="opt-txt-sub" id="srcSub">—</div>
@@ -334,10 +334,9 @@ function renderSourceRow(settings){
     currentSourceKey = sourceKey(settings);
     if (settings.blurRegions) blurRegionsMap = settings.blurRegions;
   }
-  const row = $('srcRow');
-  if (!settings || !settings.sourceName){ row.style.display = 'none'; return; }
-  row.style.display = '';
-  $('srcSub').textContent = (settings.sourceType === 'screen' ? 'Screen — ' : 'Window — ') + settings.sourceName;
+  $('srcSub').textContent = (settings && settings.sourceName)
+    ? (settings.sourceType === 'screen' ? 'Screen — ' : 'Window — ') + settings.sourceName
+    : 'Not set — click Change to choose';
 }
 
 function renderPicker(sources){

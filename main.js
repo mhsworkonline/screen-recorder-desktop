@@ -79,7 +79,7 @@ function mapSources(sources){
 async function resolveSource(request){
   const raw = await desktopCapturer.getSources({
     types: ['screen', 'window'],
-    thumbnailSize: { width: 300, height: 200 },
+    thumbnailSize: { width: 400, height: 250 },
     fetchWindowIcons: true,
   });
 
@@ -115,6 +115,7 @@ function createWindow(){
   win = new BrowserWindow({
     width: 480,
     height: 780,
+    show: false, // maximize before first paint so there's no small→big flash
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -124,6 +125,7 @@ function createWindow(){
   });
   Menu.setApplicationMenu(null);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.once('ready-to-show', () => { win.maximize(); win.show(); });
   win.on('closed', () => { win = null; });
 }
 
@@ -191,7 +193,7 @@ app.whenReady().then(() => {
   ipcMain.handle('sources:get', async () => {
     const raw = await desktopCapturer.getSources({
       types: ['screen', 'window'],
-      thumbnailSize: { width: 300, height: 200 },
+      thumbnailSize: { width: 400, height: 250 },
       fetchWindowIcons: true,
     });
     return mapSources(raw);
