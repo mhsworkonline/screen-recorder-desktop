@@ -243,7 +243,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text-dark);-webkit
         <button class="ctrl stop" id="stopBtn">Stop</button>
       </div>
     </div>
-    <video id="srcVideo" autoplay muted playsinline style="position:absolute;left:-9999px;top:0;width:1px;height:1px;opacity:0"></video>
 
     <div class="card result" id="result">
       <video id="preview" controls playsinline></video>
@@ -596,11 +595,11 @@ async function start(){
 
   let videoTrackForRecorder = displayStream.getVideoTracks()[0];
   if (blurEnabled){
-    try { videoTrackForRecorder = await setupBlurPipeline(); }
+    try { videoTrackForRecorder = await setupCanvasPipeline(); }
     catch (err) {
-      showError('Blur preview failed — recording without blur: ' + (err && err.message || err));
+      showError('Blur preview failed — recording without it: ' + (err && err.message || err));
       blurEnabled = false;
-      teardownBlurPipeline();
+      teardownCanvasPipeline();
     }
   }
 
@@ -637,13 +636,27 @@ async function start(){
     ...(audioTrack ? [audioTrack] : []),
   ]);
 
-  displayStream.getVideoTracks()[0].addEventListener('ended', () => {
+  // Watch whichever track is *actually being recorded* — in blur mode
+  // that's the canvas track, not the raw capture track. Watching the raw
+  // track here (as this used to) meant any hiccup in the underlying capture
+  // killed the entire recording, even though the canvas track being
+  // recorded was still perfectly fine on its own.
+  videoTrackForRecorder.addEventListener('ended', () => {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
   });
 
   if (countdownSeconds > 0) await countdown(countdownSeconds);
 
-  mimeType = pickMime(selectedFmt) || pickMime('webm') || '';
+  // MP4/H.264 encoding of a *canvas-captured* stream is broken in this
+  // Electron/Chromium build — measured directly: MediaRecorder stayed in
+  // "recording" state but the video track emitted almost no frames (a
+  // handful over 10s instead of ~240), producing files whose declared
+  // duration vastly outlives their actual decodable content. WebM/VP9 on
+  // the exact same canvas source produced clean, on-schedule chunks the
+  // whole time. Blur records from a canvas, so it needs this.
+  const forceWebm = blurEnabled;
+  if (forceWebm && selectedFmt === 'mp4') toast('Recording as WebM — MP4 isn\'t reliable for this source in this build');
+  mimeType = forceWebm ? (pickMime('webm') || '') : (pickMime(selectedFmt) || pickMime('webm') || '');
   container = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
   chunks = [];
   try {
@@ -675,7 +688,7 @@ async function start(){
   $('setup').style.display = 'none';
   $('result').classList.remove('show');
   $('live').classList.add('show');
-  // #live was hidden (display:none) while setupBlurPipeline() ran, so any
+  // #live was hidden (display:none) while setupCanvasPipeline() ran, so any
   // earlier positionAllBlurBoxes() call measured a collapsed 0×0 box —
   // reposition now that the card actually has layout.
   if (blurEnabled) positionAllBlurBoxes();
@@ -726,7 +739,7 @@ function stopAllTracks(){
   sysAudioTracks = [];
   stopSysAudioKeepAlive();
   displayStream = micStream = null;
-  teardownBlurPipeline();
+  teardownCanvasPipeline();
 }
 
 // --- Blur region: source key + persistence ---
@@ -849,8 +862,21 @@ function stopDrawLoop(){
   drawRafId = null;
 }
 
-async function setupBlurPipeline(){
-  if (!srcVideo) srcVideo = $('srcVideo');
+// Drives the recording canvas whenever the raw display stream can't be
+// recorded directly — either blur is on, or we're in crop mode (recording a
+// window via its containing screen + a live-tracked crop rect, see main.js).
+// The two are independent and can both be active at once: crop picks the
+// source rectangle, blur boxes are defined relative to the resulting
+// (already-cropped) output frame.
+async function setupCanvasPipeline(){
+  // Deliberately never attached to the DOM: a video element that IS attached
+  // but hidden via CSS (position off-screen + opacity:0 + 1x1 size) gets
+  // throttled by Chromium after its first frame and never decodes another
+  // one, which silently froze the blur preview whenever the window lost
+  // focus — measured directly with a forced-visual-change test. A fully
+  // detached element has no such heuristic applied and keeps decoding
+  // normally regardless of window focus.
+  if (!srcVideo){ srcVideo = document.createElement('video'); srcVideo.muted = true; srcVideo.playsInline = true; }
   if (!recCanvas){ recCanvas = $('recCanvas'); recCtx = recCanvas.getContext('2d'); }
   srcVideo.srcObject = new MediaStream([displayStream.getVideoTracks()[0]]);
   await new Promise((resolve, reject) => {
@@ -861,10 +887,10 @@ async function setupBlurPipeline(){
   await srcVideo.play().catch(() => {});
   recCanvas.width = srcVideo.videoWidth;
   recCanvas.height = srcVideo.videoHeight;
-  blurRects = currentBlurRectsForKey(currentSourceKey);
+  blurRects = blurEnabled ? currentBlurRectsForKey(currentSourceKey) : [];
   $('blurPreviewWrap').style.display = '';
-  $('blurHint').style.display = '';
-  $('blurBtnRow').style.display = 'flex';
+  $('blurHint').style.display = blurEnabled ? '' : 'none';
+  $('blurBtnRow').style.display = blurEnabled ? 'flex' : 'none';
   renderBlurBoxes();
   startDrawLoop();
   const q = QUALITY[selectedQual] || QUALITY.balanced;
@@ -872,7 +898,7 @@ async function setupBlurPipeline(){
   canvasVideoTrack = stream.getVideoTracks()[0];
   return canvasVideoTrack;
 }
-function teardownBlurPipeline(){
+function teardownCanvasPipeline(){
   stopDrawLoop();
   if (srcVideo) srcVideo.srcObject = null;
   if (canvasVideoTrack){ canvasVideoTrack.stop(); canvasVideoTrack = null; }

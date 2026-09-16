@@ -76,6 +76,16 @@ function mapSources(sources){
 // own in-app picker (via IPC round-trip to the renderer) when there's no usable
 // remembered source. The renderer-side getDisplayMedia() call stays pending the
 // whole time the user is looking at the picker — that's expected.
+//
+// Direct window capture (not screen-capture-and-crop): a screen+crop approach
+// was tried here and torn back out — it fixed the GPU-rendered-window freeze
+// (Chromium's GDI-based window capturer holds the first frame of windows
+// like scrcpy/SDL2 that render via a swap chain) but kept finding new ways to
+// fail (self-window leaking into the capture, other windows occluding the
+// target, PowerShell/encoding issues) faster than they could be closed out.
+// Direct window capture has exactly one known limitation — GPU-rendered
+// windows freeze after the first frame — instead of a rotating set of new
+// ones, which is the better trade-off for this app.
 async function resolveSource(request){
   const raw = await desktopCapturer.getSources({
     types: ['screen', 'window'],
@@ -86,7 +96,19 @@ async function resolveSource(request){
   const settings = readSettings();
   if (settings.sourceId){
     let match = raw.find(s => s.id === settings.sourceId);
-    if (!match && settings.sourceName) match = raw.find(s => s.name === settings.sourceName);
+    // Windows recycles window handles once the original window closes — a
+    // stale remembered id can end up matching a completely different,
+    // currently-open window instead of correctly failing to match at all.
+    // If the id matches but the name doesn't, that's a recycled handle, not
+    // our window — treat it as no match and fall through to name matching.
+    if (match && settings.sourceName && match.name !== settings.sourceName) match = null;
+    if (!match && settings.sourceName){
+      match = raw.find(s => s.name === settings.sourceName);
+      // Self-heal: adopt the window's current (fresh) id so future launches
+      // resolve it directly instead of repeating this same id-mismatch
+      // recovery every time.
+      if (match && match.id !== settings.sourceId) writeSettings({ sourceId: match.id });
+    }
     if (match){
       return { video: match, audio: request.audioRequested ? 'loopback' : undefined };
     }
@@ -123,6 +145,11 @@ function createWindow(){
       sandbox: true,
     },
   });
+  // The blur-region pipeline redraws via requestAnimationFrame, which
+  // Chromium throttles to near-zero once this window loses focus or is
+  // minimized — keep it running at full rate regardless, so a blurred
+  // recording doesn't stall just because the window isn't focused.
+  win.webContents.setBackgroundThrottling(false);
   Menu.setApplicationMenu(null);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => { win.maximize(); win.show(); });
