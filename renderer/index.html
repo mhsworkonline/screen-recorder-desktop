@@ -293,6 +293,7 @@ let startTime = 0, pausedMs = 0, pauseStart = 0, timerId = null, blobUrl = null;
 let mimeType = '', container = 'webm', selectedFmt = 'webm', selectedQual = 'balanced';
 let autoStopMin = 0, autoStopTimer = null;
 let starting = false;
+let stopping = false; // true from stop() until finish() fully wraps up — see stop()'s comment
 let pickingSource = false;
 let countdownSeconds = 3;
 
@@ -560,7 +561,7 @@ async function changeSource(){
 }
 
 async function start(){
-  if (starting || isRecording() || pickingSource) return;
+  if (starting || isRecording() || pickingSource || stopping) return;
   starting = true;
   clearError();
 
@@ -712,13 +713,28 @@ function togglePause(){
   }
 }
 
-function stop(){ if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); }
+// mediaRecorder.stop() flips .state to 'inactive' synchronously, but the
+// actual cleanup (stopAllTracks, building the file, resetting the UI) only
+// happens later in finish(), once the async 'stop' event fires. A shortcut
+// press landing in that gap saw isRecording() as false and started a brand
+// new recording while the old one was still being torn down — sharing
+// mutable state (displayStream, chunks, etc.) between two in-flight
+// recordings, which could surface as almost anything, including the picker
+// popping up unexpectedly. `stopping` closes that window: it blocks a new
+// start() until finish() has fully completed.
+function stop(){
+  if (mediaRecorder && mediaRecorder.state !== 'inactive'){
+    stopping = true;
+    mediaRecorder.stop();
+  }
+}
 
 function cancelRecording(){
   if (!mediaRecorder) return;
   mediaRecorder.ondataavailable = null;
-  mediaRecorder.onstop = null;
+  mediaRecorder.onstop = null; // nulled before it can fire, so finish() (and its `stopping = false`) never runs for this stop — clear it ourselves below
   try { if (mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) {}
+  stopping = false;
   clearInterval(timerId); timerId = null;
   clearAutoStop();
   stopAllTracks();
@@ -1031,6 +1047,7 @@ function finish(){
   beep(440, 160);
   download();
   toast('Recording saved');
+  stopping = false;
 }
 
 function download(){

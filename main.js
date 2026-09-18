@@ -2,6 +2,26 @@ const { app, BrowserWindow, session, desktopCapturer, globalShortcut, ipcMain, M
 const path = require('path');
 const fs = require('fs');
 
+// A second instance competing for the same global shortcuts (Ctrl+1/2/3 by
+// default) doesn't merge with or replace the first — whichever process
+// registered a given accelerator first keeps it, and every later instance's
+// registration for that same combo just silently fails, with nothing in the
+// UI to say so. Confirmed directly: launching a second instance produced
+// "Could not register global shortcut ... already in use by another app"
+// for all three, console-only (invisible in the packaged exe) — so a user
+// with two copies running (e.g. never closed an earlier one) sees a
+// shortcut that looks broken for no visible reason. Refusing to be that
+// second instance closes this off entirely, and is more useful anyway:
+// focus the window that's already running instead of doing nothing.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock){
+  app.quit();
+  return;
+}
+app.on('second-instance', () => {
+  if (win){ if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+});
+
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 const DEFAULT_SHORTCUTS = {
   startStop: 'CommandOrControl+Alt+R',
@@ -95,21 +115,24 @@ async function resolveSource(request){
 
   const settings = readSettings();
   if (settings.sourceId){
+    // Trust an id match unconditionally — it's the one authoritative signal
+    // we have for "same window", and plenty of ordinary windows change
+    // title on their own (a Chrome window's title tracks whichever tab/page
+    // is active, an editor's title tracks the open file, a media player
+    // shows the current track...). An earlier version rejected an id match
+    // whose name had drifted, meant to catch Windows recycling a closed
+    // window's id onto a different window — but confirmed directly, that
+    // guard was firing on ordinary title changes (a single-page web app
+    // navigating from "Feed" to "Minis" within the *same* Chrome window)
+    // far more often than it ever caught a real recycled handle, forcing
+    // the picker to reappear on completely ordinary use.
     let match = raw.find(s => s.id === settings.sourceId);
-    // Windows recycles window handles once the original window closes — a
-    // stale remembered id can end up matching a completely different,
-    // currently-open window instead of correctly failing to match at all.
-    // If the id matches but the name doesn't, that's a recycled handle, not
-    // our window — treat it as no match and fall through to name matching.
-    if (match && settings.sourceName && match.name !== settings.sourceName) match = null;
-    if (!match && settings.sourceName){
-      match = raw.find(s => s.name === settings.sourceName);
-      // Self-heal: adopt the window's current (fresh) id so future launches
-      // resolve it directly instead of repeating this same id-mismatch
-      // recovery every time.
-      if (match && match.id !== settings.sourceId) writeSettings({ sourceId: match.id });
-    }
+    if (!match && settings.sourceName) match = raw.find(s => s.name === settings.sourceName);
     if (match){
+      // Keep the stored name fresh (for display, and as the fallback used
+      // if the id itself ever stops matching) without ever using a name
+      // difference to invalidate an id match above.
+      if (match.name !== settings.sourceName) writeSettings({ sourceName: match.name });
       return { video: match, audio: request.audioRequested ? 'loopback' : undefined };
     }
     // Remembered source is gone (e.g. window closed) — fall through to re-picking.
